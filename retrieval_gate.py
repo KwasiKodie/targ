@@ -162,10 +162,10 @@ class RetrievalGate:
         if not isinstance(score, (int, float)):
             raise TypeError("uncertainty_score must be numeric.")
 
-        if score < 0:
+        if not 0.0 <= score <= 1.0:
             raise ValueError(
-                "Uncertainty score cannot be negative."
-            )
+                "uncertainty_score must lie in [0, 1]."
+        )
 
     # -------------------------------------------------
 
