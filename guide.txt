@@ -1,0 +1,228 @@
+This is the right stage to move from **unit testing** to **integration testing**. At this point you've individually verified:
+
+* ✅ DraftGenerator
+* ✅ MarginUncertaintyScorer
+* ✅ ThresholdCalibrator
+* ✅ RetrievalGate
+* ✅ VectorRetriever
+
+Now the goal is to verify that they work together as a TARG pipeline.
+
+## Stage 1 – Happy path (end-to-end)
+
+Create the components:
+
+```python
+draft_generator = DraftGenerator(...)
+scorer = MarginUncertaintyScorer(beta=3.0)
+
+calibration = ThresholdCalibrator.load(
+    "threshold.json"
+)
+
+gate = RetrievalGate(calibration)
+
+retriever = VectorRetriever(vector_store)
+
+answer_generator = AnswerGenerator(...)
+```
+
+Then run a query that you know exists in your vector database, for example:
+
+```python
+query = "What is Apache Struts2?"
+```
+
+The expected execution flow is:
+
+```text
+User Query
+      │
+      ▼
+DraftGenerator
+      │
+      ▼
+MarginUncertaintyScorer
+      │
+      ▼
+RetrievalGate
+      │
+      ├────────── retrieve=False ─────────► AnswerGenerator
+      │
+      ▼
+VectorRetriever
+      │
+      ▼
+AnswerGenerator
+```
+
+Verify that:
+
+```python
+pipeline.run(query)
+```
+
+returns an answer without any exceptions.
+
+---
+
+# Stage 2 – Verify gate behaviour
+
+Choose two queries.
+
+### Low uncertainty
+
+A question the model already knows.
+
+Example:
+
+```text
+What is Python?
+```
+
+Expected:
+
+```text
+retrieve == False
+documents == []
+```
+
+---
+
+### High uncertainty
+
+Something that only exists inside your RAG corpus.
+
+Example:
+
+```text
+Explain CVE-2017-5638.
+```
+
+Expected:
+
+```text
+retrieve == True
+
+len(result.documents) > 0
+```
+
+This verifies the gate is actually controlling retrieval.
+
+---
+
+# Stage 3 – Verify retrieved documents
+
+After
+
+```python
+documents = retriever.retrieve(...)
+```
+
+inspect:
+
+```python
+for d in documents.documents:
+
+    print(d.id)
+
+    print(d.score)
+
+    print(d.text[:150])
+```
+
+Ensure
+
+* IDs are correct
+* scores are reasonable
+* retrieved text is relevant
+
+---
+
+# Stage 4 – Compare both execution paths
+
+Run the same question twice.
+
+First force
+
+```python
+retrieve=False
+```
+
+Second force
+
+```python
+retrieve=True
+```
+
+Compare
+
+* answer quality
+* retrieved documents
+* latency
+
+This demonstrates the benefit of adaptive retrieval.
+
+---
+
+# Stage 5 – Stress tests
+
+Try:
+
+```python
+"What is Kubernetes?"
+
+"Explain CVE-2021-44228"
+
+"asdfghjkl"
+
+""
+
+"          "
+
+"What is Apache Struts2?"
+```
+
+Ensure the pipeline behaves predictably:
+
+* validation errors for invalid input,
+* successful retrieval for relevant queries,
+* graceful handling when no documents are found.
+
+---
+
+# Stage 6 – Logging
+
+At this stage, log each component's output. For every query, record something like:
+
+```text
+========================================
+Query:
+What is Apache Struts2?
+
+Draft:
+Apache Struts2 is...
+
+Uncertainty:
+0.47
+
+Threshold:
+0.31
+
+Retrieve:
+True
+
+Retrieved:
+3 documents
+
+Top score:
+0.91
+
+Final answer:
+...
+========================================
+```
+
+This makes it much easier to diagnose issues in later experiments.
+
+---

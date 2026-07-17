@@ -31,13 +31,35 @@ class RetrievalResult:
 
 class BaseRetriever(ABC):
 
+    @staticmethod
+    def _validate_request(
+        query: str,
+        top_k: int,
+    ) -> tuple[str, int]:
+
+        if not isinstance(query, str):
+            raise TypeError("query must be a string.")
+
+        query = query.strip()
+
+        if not query:
+            raise ValueError("query must not be empty.")
+
+        if not isinstance(top_k, int):
+            raise TypeError("top_k must be an integer.")
+
+        if top_k <= 0:
+            raise ValueError("top_k must be greater than zero.")
+
+        return query, top_k
+
     @abstractmethod
     def retrieve(
         self,
         query: str,
         top_k: int = 5,
     ) -> RetrievalResult:
-        pass
+        ...
 
 class VectorRetriever(BaseRetriever):
 
@@ -52,14 +74,12 @@ class VectorRetriever(BaseRetriever):
         self.vector_store = vector_store
 
     def retrieve(
-
         self,
-
         query: str,
-
         top_k: int = 5,
-
     ) -> RetrievalResult:
+
+        query, top_k = self._validate_request(query, top_k)
 
         docs = self.vector_store.similarity_search(
             query,
