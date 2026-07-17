@@ -756,8 +756,8 @@ class ThresholdCalibrator:
         development_size: int,
     ) -> CalibrationResult:
         return CalibrationResult(
-            margin_type = self.callibration.gate_name
-            callibration_method = self.callibration.mode
+            margin_type = self.callibration.gate_name,
+            callibration_method = self.callibration.mode,
             threshold=selected.threshold,
             mode=mode.value,
             development_size=development_size,
