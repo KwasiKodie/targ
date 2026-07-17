@@ -145,22 +145,14 @@ class RetrievalGate:
             )
 
         return RetrievalDecision(
-
-            retrieve=retrieve,
-
-            uncertainty_score=uncertainty_score,
-
-            threshold=self.calibration.threshold,
-
-            margin_type=self.calibration.margin_type,
-
-            calibration_method=self.calibration.method,
-
-            reason=reason,
-
-            explanation=explanation,
-
-        )
+    retrieve=retrieve,
+    uncertainty_score=uncertainty_score,
+    threshold=self.calibration.threshold,
+    margin_type=self.calibration.gate_name,
+    calibration_method=self.calibration.mode,
+    reason=reason,
+    explanation=explanation,
+)
 
     # -------------------------------------------------
 
