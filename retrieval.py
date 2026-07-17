@@ -86,6 +86,9 @@ class VectorRetriever(BaseRetriever):
             k=top_k,
         )
 
+        for d in docs:
+            print(d.metadata)
+
         return RetrievalResult(
 
             query=query,
@@ -96,11 +99,14 @@ class VectorRetriever(BaseRetriever):
 
             documents=[
                 RetrievedDocument(
-                    id=d.metadata["id"],
+                    id=d.metadata.get(
+                        "id",
+                        f"doc_{i}",
+                    ),
                     text=d.page_content,
                     score=d.metadata.get("score", 0.0),
                     metadata=d.metadata,
                 )
-                for d in docs
+                for i, d in enumerate(docs)
             ],
         )
