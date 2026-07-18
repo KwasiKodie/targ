@@ -1,0 +1,16 @@
+{
+  "achieved_retrieval_rate": 0.5,
+  "achieved_score": 0.0,
+  "always_retrieval_score": 0.0,
+  "beta": 3.0,
+  "calibrated_at": "2026-07-17T22:26:55.388458+00:00",
+  "development_size": 30,
+  "gate_name": "margin",
+  "metric_name": "exact_match",
+  "mode": "target_retrieval_budget",
+  "no_retrieval_score": 0.0,
+  "prefix_length": 20,
+  "schema_version": 1,
+  "target_retrieval_rate": 0.5,
+  "threshold": 0.4971897602081299
+}

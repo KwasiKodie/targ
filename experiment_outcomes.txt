@@ -1,0 +1,915 @@
+"""
+This file contains all the code, and outcomes for the experiment
+
+"Retrieval as a Decision: Training-Free Adaptive Gating for Efficient RAG"
+arXiv:2511.09803
+"""
+
+================
+Preliminary runs
+================
+
+!git clone https://github.com/KwasiKodie/targ.git
+
+%cd targ
+
+#!pip install langchain_openai
+from langchain_openai import ChatOpenAI
+#!pip install dotenv
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+os.environ['OPENAI_API_KEY'] = os.getenv("OPENAI_API_KEY")
+os.environ['LANGCHAIN_TRACING_V2'] = 'false'
+os.environ['LANGCHAIN_ENDPOINT'] = 'https://api.smith.langchain.com'
+os.environ['LANGCHAIN_API_KEY'] = os.getenv("LANGCHAIN_API_KEY")
+
+from langchain_community.document_loaders import TextLoader
+
+# Initialize the loader with your text file path
+loader = TextLoader("./guide.txt")
+
+# Load the file into a list of Document objects
+docs = loader.load()
+
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+splitter = RecursiveCharacterTextSplitter(
+    chunk_size=1000,
+    chunk_overlap=200
+)
+
+chunks = splitter.split_documents(docs)
+
+from langchain_chroma import Chroma
+from langchain_openai import OpenAIEmbeddings
+
+vectorstore = Chroma.from_documents(documents=chunks,
+                                    embedding=OpenAIEmbeddings())
+
+from transformers import AutoTokenizer
+from transformers import AutoModelForCausalLM
+
+MODEL_NAME = "Qwen/Qwen2.5-1.5B-Instruct"
+
+tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+
+model = AutoModelForCausalLM.from_pretrained(
+    MODEL_NAME,
+    torch_dtype="auto",
+    device_map="auto"
+)
+
+from pathlib import Path
+
+from draft_generator import DraftGenerator
+from margin_uncertainty_scorer import MarginUncertaintyScorer
+from threshold_calibrator import (
+    ThresholdCalibrator,
+    DevelopmentExample,
+)
+from retrieval_gate import RetrievalGate
+from retrieval import VectorRetriever
+
+MODEL_NAME = "Qwen/Qwen2.5-1.5B-Instruct"
+
+THRESHOLD_FILE = Path("threshold.json")
+
+PREFIX_LENGTH = 20
+BETA = 3.0
+TOP_K = 5
+
+tokenizer = tokenizer
+model = model
+vector_store = vectorstore
+
+draft_generator = DraftGenerator(
+    model=model,
+    tokenizer=tokenizer,
+    prefix_length=PREFIX_LENGTH,
+)
+
+scorer = MarginUncertaintyScorer(
+    beta=BETA,
+    )
+
+retriever = VectorRetriever(
+    vector_store = vector_store,
+)
+
+calibration = ThresholdCalibrator.load(
+    THRESHOLD_FILE,
+)
+
+retrieval_gate = RetrievalGate(
+    calibration,
+)
+
+development_questions = [
+    # -------------------------------------------------------
+    # General questions likely to be known by the base model
+    # -------------------------------------------------------
+    "What is Python?",
+    "What is machine learning?",
+    "What is artificial intelligence?",
+    "What is a database?",
+    "What is cloud computing?",
+    "What is an operating system?",
+    "What is a neural network?",
+    "What is a supervised learning?",
+    "What is a programming language?",
+    "What is cybersecurity?",
+    "What is a vector database?",
+    "What is Retrieval-Augmented Generation?",
+    "What is semantic search?",
+    "What is a large language model?",
+    "What is a software unit test",
+
+
+    # -------------------------------------------------
+    # Questions specifically grounded in guide.txt
+    # -------------------------------------------------
+    "What is the first stage in the happy path?",
+    "Which components are instantiated during Stage 1?",
+    "What is the purpose of Stage 2?",
+    "What behaviour is expected for a low-uncertainty query?",
+    "What behaviour is expected for a high-uncertainty query?",
+    "What should be inspected during Stage 3?",
+    "Which retrieved-document properties should be checked?",
+    "What is compared during Stage 4?",
+    "How should retrieval be forced during Stage 4?",
+    "Which inputs are suggested for the stress tests?",
+    "How should an empty query be handled?",
+    "What information should be recorded during loggin?",
+    "What does the example execution flow place after the retrieval gate?",
+    "Why should the same question be run twice in Stage 4?",
+    "What does Stage 2 verify about the retrieval gate?",
+]
+
+def build_prompt(question: str) -> str:
+    question = question.strip()
+
+    if not question:
+        raise ValueError("question must not be empty.")
+
+    return (
+        "Answer the following question concisely.\n\n"
+        f"Question:\n{question}\n\n"
+        "Answer:\n"
+    )
+
+from dataclasses import dataclass
+
+@dataclass(frozen=True)
+class ScoredDevelopmentQuery:
+    example_id: str
+    question: str
+    prompt: str
+    draft: str
+    uncertainty_score: float
+
+scored_queries: list[ScoredDevelopmentQuery] = []
+
+for index, question in enumerate(development_questions):
+    
+    prompt = build_prompt(question)
+
+    draft = draft_generator.generate(prompt)
+
+    uncertainty = scorer.score(draft)
+
+    scored_queries.append(
+        ScoredDevelopmentQuery(
+            example_id=f"dev_{index:03d}",
+            question=question,
+            prompt=prompt,
+            draft=draft.generated_text,
+            uncertainty_score=float(uncertainty.score),
+        )
+    )
+
+    print(
+        f"{index + 1:02d}/{len(development_questions)} | "
+        f"U={uncertainty.score:.6f} | "
+        f"{question}"
+    )
+
+======
+test 1
+======
+
+import pandas as pd
+
+scores_df = pd.DataFrame(
+    [
+        {
+            "example_id": item.example_id,
+            "question": item.question,
+            "uncertainty": item.uncertainty_score,
+            "draft": item.draft,
+        }
+        for item in scored_queries
+    ]
+)
+
+scores_df = scores_df.sort_values(
+    by="uncertainty",
+    ascending=True,
+).reset_index(drop=True)
+
+scores_df
+
+=Outcome==
+
+	example_id 	question 	uncertainty 	draft
+0 	dev_006 	What is a neural network? 	0.309544 	A neural network is a type of machine learnin...
+1 	dev_001 	What is machine learning? 	0.354291 	Machine learning is a subset of artificial in...
+2 	dev_005 	What is an operating system? 	0.359915 	An operating system is a software program tha...
+3 	dev_000 	What is Python? 	0.362620 	Python is a high-level, interpreted programmi...
+4 	dev_009 	What is cybersecurity? 	0.363341 	Cybersecurity is the practice of protecting s...
+5 	dev_002 	What is artificial intelligence? 	0.375619 	Artificial intelligence (AI) is the simulatio...
+6 	dev_007 	What is a supervised learning? 	0.402259 	Supervised learning is a type of machine lear...
+7 	dev_008 	What is a programming language? 	0.405809 	A programming language is a formal language d...
+8 	dev_010 	What is a vector database? 	0.408816 	A vector database is a type of database that ...
+9 	dev_013 	What is a large language model? 	0.416019 	A large language model is a type of artificia...
+10 	dev_015 	What is the first stage in the happy path? 	0.473207 	The first stage in the happy path is the init...
+11 	dev_011 	What is Retrieval-Augmented Generation? 	0.485379 	Retrieval-Augmented Generation is a machine l...
+12 	dev_014 	What is a software unit test 	0.489365 	A software unit test is a type of test that v...
+13 	dev_019 	What behaviour is expected for a high-uncertai... 	0.494148 	A high-uncertainty query is expected to have ...
+14 	dev_018 	What behaviour is expected for a low-uncertain... 	0.497190 	A low-uncertainty query is expected to return...
+15 	dev_004 	What is cloud computing? 	0.505097 	Cloud computing is a model of delivering comp...
+16 	dev_012 	What is semantic search? 	0.518333 	Semantic search is a type of search engine te...
+17 	dev_023 	How should retrieval be forced during Stage 4? 	0.543027 	During Stage 4, retrieval should be forced by...
+18 	dev_027 	What does the example execution flow place aft... 	0.545281 	The example execution flow places the retriev...
+19 	dev_003 	What is a database? 	0.549858 	A database is a collection of data that is or...
+20 	dev_022 	What is compared during Stage 4? 	0.556843 	During Stage 4, the comparison is made betwee...
+21 	dev_028 	Why should the same question be run twice in S... 	0.558692 	To ensure that the same question is run twice...
+22 	dev_029 	What does Stage 2 verify about the retrieval g... 	0.563241 	Stage 2 verifies that the retrieval gate is o...
+23 	dev_021 	Which retrieved-document properties should be ... 	0.567386 	The retrieved-document properties should be c...
+24 	dev_025 	How should an empty query be handled? 	0.579479 	An empty query should be handled by returning...
+25 	dev_026 	What information should be recorded during log... 	0.594860 	\nDuring logging, it is important to record t...
+26 	dev_016 	Which components are instantiated during Stage 1? 	0.633567 	The components instantiated during Stage 1 ar...
+27 	dev_020 	What should be inspected during Stage 3? 	0.652013 	During Stage 3, the inspection should include...
+28 	dev_024 	Which inputs are suggested for the stress tests? 	0.689147 	The suggested inputs for stress tests are typ...
+29 	dev_017 	What is the purpose of Stage 2? 	0.697870 	Stage 2 is the second stage of the OSI model,...
+
+===run =====
+scores_df[
+    ["question", "uncertainty", "draft"]
+].head(10)
+
+===outcome =====
+
+	question 	uncertainty 	draft
+0 	What is a neural network? 	0.309544 	A neural network is a type of machine learnin...
+1 	What is machine learning? 	0.354291 	Machine learning is a subset of artificial in...
+2 	What is an operating system? 	0.359915 	An operating system is a software program tha...
+3 	What is Python? 	0.362620 	Python is a high-level, interpreted programmi...
+4 	What is cybersecurity? 	0.363341 	Cybersecurity is the practice of protecting s...
+5 	What is artificial intelligence? 	0.375619 	Artificial intelligence (AI) is the simulatio...
+6 	What is a supervised learning? 	0.402259 	Supervised learning is a type of machine lear...
+7 	What is a programming language? 	0.405809 	A programming language is a formal language d...
+8 	What is a vector database? 	0.408816 	A vector database is a type of database that ...
+9 	What is a large language model? 	0.416019 	A large language model is a type of artificia...
+
+===run ===
+print(
+    scores_df["uncertainty"].describe(
+        percentiles=[
+            0.10,
+            0.25,
+            0.50,
+            0.75,
+            0.90,
+        ]
+    )
+)
+
+====outcome ====
+count    30.000000
+mean      0.498407
+std       0.104734
+min       0.309544
+10%       0.362349
+25%       0.406561
+50%       0.501143
+75%       0.562103
+90%       0.635411
+max       0.697870
+Name: uncertainty, dtype: float64
+
+====run ====
+print(
+    f"Minimum uncertainty: "
+    f"{scores_df['uncertainty'].min():.6f}"
+)
+
+print(
+    f"Median uncertainty: "
+    f"{scores_df['uncertainty'].median():.6f}"
+)
+
+print(
+    f"Maximum uncertainty: "
+    f"{scores_df['uncertainty'].max():.6f}"
+)
+
+===outcome ====
+Minimum uncertainty: 0.309544
+Median uncertainty: 0.501143
+Maximum uncertainty: 0.697870
+
+====run ====
+import matplotlib.pyplot as plt
+
+plt.figure(figsize=(9, 5))
+
+plt.hist(
+    scores_df["uncertainty"],
+    bins=10,
+    edgecolor="black",
+)
+
+plt.xlabel("Margin uncertainty score")
+plt.ylabel("Number of development queries")
+plt.title("Development-set uncertainty distribution")
+
+plt.show()
+
+====outcome ====
+Provided in Chat
+================
+
+====run ====
+import numpy as np
+
+sorted_scores = np.sort(
+    scores_df["uncertainty"].to_numpy()
+)
+
+empirical_cdf = (
+    np.arange(1, len(sorted_scores) + 1)
+    / len(sorted_scores)
+)
+
+plt.figure(figsize=(9, 5))
+
+plt.plot(
+    sorted_scores,
+    empirical_cdf,
+    marker="o",
+)
+
+plt.xlabel("Margin uncertainty score")
+plt.ylabel("Empirical cumulative probability")
+plt.title("Empirical CDF of development uncertainty")
+
+plt.show()
+
+====outcome=====
+Provided in Chat
+================
+
+========
+Pre-runs
+========
+
+TARGET_RETRIEVAL_RATE = 0.50
+
+quantile = 1.0 - TARGET_RETRIEVAL_RATE
+
+real_threshold = float(
+    scores_df["uncertainty"].quantile(
+        quantile,
+        interpolation="higher",
+    )
+)
+
+print(f"Selected threshold: {real_threshold:.6f}")
+
+retrieval_decision = (
+    scores_df["uncertainty"] > real_threshold
+)
+
+achieved_retrieval_rate = float(
+    retrieval_decision.mean()
+
+)
+
+print(
+    f"Target retrieval rate: "
+    f"{TARGET_RETRIEVAL_RATE:.3f}"
+)
+
+print(
+    f"Achieved retrieval rate: "
+    f"{achieved_retrieval_rate:.3f}"
+)
+
+inspection_df = scores_df.copy()
+
+inspection_df["retrieve"] = (
+    inspection_df["uncertainty"]
+    > real_threshold
+)
+
+inspection_df[
+    [
+        "question",
+        "uncertainty",
+        "retrieve",
+        "draft",
+    ]
+]
+
+====outcome====
+
+	question 	uncertainty 	retrieve 	draft
+0 	What is a neural network? 	0.309544 	False 	A neural network is a type of machine learnin...
+1 	What is machine learning? 	0.354291 	False 	Machine learning is a subset of artificial in...
+2 	What is an operating system? 	0.359915 	False 	An operating system is a software program tha...
+3 	What is Python? 	0.362620 	False 	Python is a high-level, interpreted programmi...
+4 	What is cybersecurity? 	0.363341 	False 	Cybersecurity is the practice of protecting s...
+5 	What is artificial intelligence? 	0.375619 	False 	Artificial intelligence (AI) is the simulatio...
+6 	What is a supervised learning? 	0.402259 	False 	Supervised learning is a type of machine lear...
+7 	What is a programming language? 	0.405809 	False 	A programming language is a formal language d...
+8 	What is a vector database? 	0.408816 	False 	A vector database is a type of database that ...
+9 	What is a large language model? 	0.416019 	False 	A large language model is a type of artificia...
+10 	What is the first stage in the happy path? 	0.473207 	False 	The first stage in the happy path is the init...
+11 	What is Retrieval-Augmented Generation? 	0.485379 	False 	Retrieval-Augmented Generation is a machine l...
+12 	What is a software unit test 	0.489365 	False 	A software unit test is a type of test that v...
+13 	What behaviour is expected for a high-uncertai... 	0.494148 	False 	A high-uncertainty query is expected to have ...
+14 	What behaviour is expected for a low-uncertain... 	0.497190 	False 	A low-uncertainty query is expected to return...
+15 	What is cloud computing? 	0.505097 	False 	Cloud computing is a model of delivering comp...
+16 	What is semantic search? 	0.518333 	True 	Semantic search is a type of search engine te...
+17 	How should retrieval be forced during Stage 4? 	0.543027 	True 	During Stage 4, retrieval should be forced by...
+18 	What does the example execution flow place aft... 	0.545281 	True 	The example execution flow places the retriev...
+19 	What is a database? 	0.549858 	True 	A database is a collection of data that is or...
+20 	What is compared during Stage 4? 	0.556843 	True 	During Stage 4, the comparison is made betwee...
+21 	Why should the same question be run twice in S... 	0.558692 	True 	To ensure that the same question is run twice...
+22 	What does Stage 2 verify about the retrieval g... 	0.563241 	True 	Stage 2 verifies that the retrieval gate is o...
+23 	Which retrieved-document properties should be ... 	0.567386 	True 	The retrieved-document properties should be c...
+24 	How should an empty query be handled? 	0.579479 	True 	An empty query should be handled by returning...
+25 	What information should be recorded during log... 	0.594860 	True 	\nDuring logging, it is important to record t...
+26 	Which components are instantiated during Stage 1? 	0.633567 	True 	The components instantiated during Stage 1 ar...
+27 	What should be inspected during Stage 3? 	0.652013 	True 	During Stage 3, the inspection should include...
+28 	Which inputs are suggested for the stress tests? 	0.689147 	True 	The suggested inputs for stress tests are typ...
+29 	What is the purpose of Stage 2? 	0.697870 	True 	Stage 2 is the second stage of the OSI model,...
+
+====run ====
+inspection_df[
+    inspection_df["question"].isin(
+        [
+            "What is Retrieval-Augmented Generation",
+            "What is the first stage in the happy path?"
+        ]
+    )
+][
+    [
+        "question",
+        "uncertainty",
+        "retrieve",
+    ]
+]
+
+====outcome ====
+
+	question 	uncertainty 	retrieve
+10 	What is the first stage in the happy path? 	0.473207 	False
+
+====pre-runs ====
+
+development_examples = [
+    DevelopmentExample(
+        example_id=item.example_id,
+        uncertainty_score=item.uncertainty_score,
+        no_retrieval_score=0.0,
+        retrieval_score=0.0
+    )
+    for item in scored_queries
+]
+
+calibrator = ThresholdCalibrator(
+    gate_name="margin",
+    beta=BETA,
+    prefix_length=PREFIX_LENGTH,
+    metric_name="exact_match",
+)
+
+calibration = calibrator.calibrate_for_budget(
+    development_examples,
+    target_retrieval_rate=TARGET_RETRIEVAL_RATE,
+)
+
+print(f"Threshold: {calibration.threshold:.6f}")
+
+print(
+    "Target retrieval rate:",
+    calibration.target_retrieval_rate,
+)
+
+print(
+    "Achieved retrieval rate:",
+    calibration.achieved_retrieval_rate,
+)
+
+assert calibration.development_size == len(
+    development_examples
+)
+
+assert calibration.beta == BETA
+
+assert calibration.prefix_length == PREFIX_LENGTH
+
+if THRESHOLD_FILE.exists():
+    backup_file = THRESHOLD_FILE.with_name(
+        "threshold.synthetic.backup.json"
+    )
+
+    THRESHOLD_FILE.replace(backup_file)
+
+    print(
+        f"Synthetic calibration moved to: "
+        f"{backup_file}"
+    )
+
+calibrator.save(
+    calibration,
+    THRESHOLD_FILE,
+)
+
+loaded_calibration = ThresholdCalibrator.load(
+    THRESHOLD_FILE,
+)
+
+assert (
+    loaded_calibration.threshold
+    == calibration.threshold
+)
+
+assert (
+    loaded_calibration.development_size
+    == len(development_examples)
+)
+
+print(loaded_calibration)
+
+calibration = ThresholdCalibrator.load(
+    THRESHOLD_FILE,
+)
+
+retrieval_gate = RetrievalGate(
+    calibration,
+)
+
+LOW_UNCERTAINTY_QUERY = """Answer the following question concisely. 
+
+Question: What is Retrieval-Augmented Generation 
+
+Answer: """ 
+
+HIGH_UNCERTAINTY_QUERY = ( """Answer the following question concisely. 
+
+Question: What is the first stage in the happy path? 
+
+Answer: """
+)
+
+def run_query(query: str):
+
+    print("=" * 80)
+    print(f"Query: {query}")
+    print("=" * 80)
+
+    draft = draft_generator.generate(query)
+
+    print("\nDraft:")
+    print(draft.generated_text)
+
+    uncertainty = scorer.score(draft)
+
+    print("\nUncertainty Score:")
+    print(f"{uncertainty.score:.6f}")
+
+    decision = retrieval_gate.decide(
+        uncertainty.score
+    )
+
+    print("\nGate Decision:")
+    print(decision.retrieve)
+
+    print(f"Threshold : {decision.threshold:.6f}")
+
+    if decision.retrieve:
+
+        retrieval = retriever.retrieve(
+            query,
+            top_k=5
+        )
+    else:
+
+      retrieval = RetrievalResult(
+          query=query,
+          documents=[],
+          retrieved=False,
+          retrieval_backend="None"
+      )
+
+    print("\nRetrieved Documents:")
+
+    print(len(retrieval.documents))
+
+    for i, doc in enumerate(retrieval.documents):
+
+        print("-" * 60)
+
+        print(f"Document {i+1}")
+
+        print(f"ID: {doc.id}")
+
+        print(f"Score: {doc.score}")
+
+        print(doc.text[:250])
+
+    return {
+        "draft": draft,
+        "uncertainty": uncertainty,
+        "decision": decision,
+        "retrieval": retrieval,
+    }
+
+    low_result = run_query(
+    LOW_UNCERTAINTY_QUERY
+)
+
+high_result = run_query(
+    HIGH_UNCERTAINTY_QUERY
+)
+
+====outcome ====
+================================================================================
+Query: Answer the following question concisely. 
+
+Question: What is Retrieval-Augmented Generation 
+
+Answer: 
+================================================================================
+
+Draft:
+ Retrieval-Augmented Generation is a machine learning technique that combines the strengths of two different approaches: Retrie
+
+Uncertainty Score:
+0.601953
+
+Gate Decision:
+True
+Threshold : 0.497190
+{'source': './guide.txt'}
+{'source': './guide.txt'}
+{'source': './guide.txt'}
+{'source': './guide.txt'}
+
+Retrieved Documents:
+4
+------------------------------------------------------------
+Document 1
+ID: doc_0
+Score: 0.0
+This is the right stage to move from **unit testing** to **integration testing**. At this point you've individually verified:
+
+* ✅ DraftGenerator
+* ✅ MarginUncertaintyScorer
+* ✅ ThresholdCalibrator
+* ✅ RetrievalGate
+* ✅ VectorRetriever
+
+Now the goal 
+------------------------------------------------------------
+Document 2
+ID: doc_1
+Score: 0.0
+Then run a query that you know exists in your vector database, for example:
+
+```python
+query = "What is Apache Struts2?"
+```
+
+The expected execution flow is:
+
+```text
+User Query
+      │
+      ▼
+DraftGenerator
+      │
+      ▼
+MarginUncertaintyScorer
+ 
+------------------------------------------------------------
+Document 3
+ID: doc_2
+Score: 0.0
+Example:
+
+```text
+Explain CVE-2017-5638.
+```
+
+Expected:
+
+```text
+retrieve == True
+
+len(result.documents) > 0
+```
+
+This verifies the gate is actually controlling retrieval.
+
+---
+
+# Stage 3 – Verify retrieved documents
+
+After
+
+```python
+documents = ret
+------------------------------------------------------------
+Document 4
+ID: doc_3
+Score: 0.0
+---
+
+# Stage 5 – Stress tests
+
+Try:
+
+```python
+"What is Kubernetes?"
+
+"Explain CVE-2021-44228"
+
+"asdfghjkl"
+
+""
+
+"          "
+
+"What is Apache Struts2?"
+```
+
+Ensure the pipeline behaves predictably:
+
+* validation errors for invalid input,
+* successfu
+================================================================================
+Query: Answer the following question concisely. 
+
+Question: What is the first stage in the happy path? 
+
+Answer: 
+================================================================================
+
+Draft:
+ The first stage in the happy path is the initial request. 
+
+This is the first step in the
+
+Uncertainty Score:
+0.581898
+
+Gate Decision:
+True
+Threshold : 0.497190
+{'source': './guide.txt'}
+{'source': './guide.txt'}
+{'source': './guide.txt'}
+{'source': './guide.txt'}
+
+Retrieved Documents:
+4
+------------------------------------------------------------
+Document 1
+ID: doc_0
+Score: 0.0
+---
+
+# Stage 5 – Stress tests
+
+Try:
+
+```python
+"What is Kubernetes?"
+
+"Explain CVE-2021-44228"
+
+"asdfghjkl"
+
+""
+
+"          "
+
+"What is Apache Struts2?"
+```
+
+Ensure the pipeline behaves predictably:
+
+* validation errors for invalid input,
+* successfu
+------------------------------------------------------------
+Document 2
+ID: doc_1
+Score: 0.0
+This is the right stage to move from **unit testing** to **integration testing**. At this point you've individually verified:
+
+* ✅ DraftGenerator
+* ✅ MarginUncertaintyScorer
+* ✅ ThresholdCalibrator
+* ✅ RetrievalGate
+* ✅ VectorRetriever
+
+Now the goal 
+------------------------------------------------------------
+Document 3
+ID: doc_2
+Score: 0.0
+Then run a query that you know exists in your vector database, for example:
+
+```python
+query = "What is Apache Struts2?"
+```
+
+The expected execution flow is:
+
+```text
+User Query
+      │
+      ▼
+DraftGenerator
+      │
+      ▼
+MarginUncertaintyScorer
+ 
+------------------------------------------------------------
+Document 4
+ID: doc_3
+Score: 0.0
+Example:
+
+```text
+Explain CVE-2017-5638.
+```
+
+Expected:
+
+```text
+retrieve == True
+
+len(result.documents) > 0
+```
+
+This verifies the gate is actually controlling retrieval.
+
+---
+
+# Stage 3 – Verify retrieved documents
+
+After
+
+```python
+documents = ret
+
+====pre-run====
+print(
+    "Low score:",
+    low_result["uncertainty"].score,
+)
+
+print(
+    "Low retrieve:",
+    low_result["decision"].retrieve,
+)
+
+print(
+    "High score:",
+    high_result["uncertainty"].score,
+)
+
+print(
+    "High retrieve",
+    high_result["decision"].retrieve,
+)
+
+print(
+    "Threshold:",
+    calibration.threshold,
+)
+
+==== outcome ====
+Low score: 0.6019533276557922
+Low retrieve: True
+High score: 0.5818976163864136
+High retrieve True
+Threshold: 0.4971897602081299
+

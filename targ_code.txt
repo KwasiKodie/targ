@@ -1,0 +1,2822 @@
+"""This file contains all the python codes used in experimentation on the paper
+
+Wang, Wei, and Ling,
+"Retrieval as a Decision: Training-Free Adaptive Gating for Efficient RAG"
+arXiv:2511.09803
+"""
+
+=======================
+rarg/draft_generator.py
+=======================
+"""
+draft_generator.py
+
+Retrieval-free prefix generation for Training-free Adaptive Retrieval
+Gating (TARG).
+
+This module implements only the DecodePrefix stage of TARG. It does not
+calculate uncertainty, calibrate thresholds, perform retrieval, or generate
+the final answer.
+
+Paper:
+    Wang, Wei, and Ling,
+    "Retrieval as a Decision: Training-Free Adaptive Gating for Efficient RAG"
+    arXiv:2511.09803
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Mapping, Optional, Protocol, Sequence
+
+import torch
+from torch import Tensor
+
+
+# ---------------------------------------------------------------------
+# Interfaces
+# ---------------------------------------------------------------------
+
+
+class TokenizerProtocol(Protocol):
+    """
+    Minimal tokenizer interface required by DraftGenerator.
+
+    A Hugging Face tokenizer satisfies this interface.
+    """
+
+    eos_token_id: Optional[int]
+    pad_token_id: Optional[int]
+
+    def __call__(
+        self,
+        text: str,
+        *,
+        return_tensors: str,
+        add_special_tokens: bool = True,
+        truncation: bool = False,
+    ) -> Mapping[str, Tensor]:
+        ...
+
+    def decode(
+        self,
+        token_ids: Sequence[int] | Tensor,
+        *,
+        skip_special_tokens: bool = True,
+    ) -> str:
+        ...
+
+
+# ---------------------------------------------------------------------
+# Immutable outputs
+# ---------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class DraftStep:
+    """
+    Information recorded for one autoregressive prefix position.
+
+    Attributes
+    ----------
+    position:
+        Zero-based generated-token position within the retrieval-free draft.
+
+    token_id:
+        Token selected greedily at this position.
+
+    logits:
+        Complete next-token logit vector before token selection.
+        Shape: [vocabulary_size].
+
+    top1_logit:
+        Largest next-token logit.
+
+    top2_logit:
+        Second-largest next-token logit.
+
+    logit_margin:
+        Difference between the largest and second-largest logits:
+        g_t = l_(1) - l_(2).
+    """
+
+    position: int
+    token_id: int
+    logits: Tensor
+    top1_logit: float
+    top2_logit: float
+    logit_margin: float
+
+
+@dataclass(frozen=True)
+class DraftOutput:
+    """
+    Immutable result of retrieval-free prefix decoding.
+
+    Attributes
+    ----------
+    base_prompt:
+        The retrieval-free prompt B(q).
+
+    prompt_input_ids:
+        Tokenized base prompt. Shape: [1, prompt_length].
+
+    prompt_attention_mask:
+        Attention mask for the base prompt. Shape: [1, prompt_length].
+
+    generated_token_ids:
+        Token IDs generated after the base prompt. Shape: [generated_length].
+
+    generated_text:
+        Decoded retrieval-free draft prefix.
+
+    steps:
+        One DraftStep for every generated token.
+
+    requested_prefix_length:
+        Configured k.
+
+    actual_prefix_length:
+        Number of generated tokens. This may be less than k if EOS or
+        another configured stop token is produced.
+
+    stopped_on_eos:
+        Whether decoding terminated because the model emitted EOS.
+
+    stopped_on_custom_token:
+        Whether decoding terminated because a configured stop token was
+        produced.
+    """
+
+    base_prompt: str
+    prompt_input_ids: Tensor
+    prompt_attention_mask: Tensor
+    generated_token_ids: Tensor
+    generated_text: str
+    steps: tuple[DraftStep, ...]
+    requested_prefix_length: int
+    actual_prefix_length: int
+    stopped_on_eos: bool
+    stopped_on_custom_token: bool
+
+    @property
+    def logits(self) -> Tensor:
+        """
+        Stack per-step logits into shape [generated_length, vocabulary_size].
+        """
+        if not self.steps:
+            return torch.empty((0, 0), dtype=torch.float32)
+
+        return torch.stack(
+            [step.logits for step in self.steps],
+            dim=0,
+        )
+
+    @property
+    def logit_margins(self) -> Tensor:
+        """
+        Return g_1, ..., g_k as a one-dimensional tensor.
+        """
+        return torch.tensor(
+            [step.logit_margin for step in self.steps],
+            dtype=torch.float32,
+        )
+
+
+# ---------------------------------------------------------------------
+# Draft generator
+# ---------------------------------------------------------------------
+
+
+class DraftGenerator:
+    """
+    Generate the short retrieval-free prefix required by TARG.
+
+    The paper performs a single up-front gate using a short prefix generated
+    from B(q), without retrieved context. Main experiments use greedy
+    decoding, batch size 1, and k=20 by default.
+
+    This class intentionally does not:
+    - call a retriever;
+    - inject retrieved documents;
+    - compute entropy, margin uncertainty, or variance;
+    - decide whether retrieval is required;
+    - reuse the draft as the final answer.
+    """
+
+    def __init__(
+        self,
+        *,
+        model: Any,
+        tokenizer: TokenizerProtocol,
+        prefix_length: int = 20,
+        stop_token_ids: Optional[Sequence[int]] = None,
+        add_special_tokens: bool = True,
+        use_cache: bool = True,
+        clone_logits_to_cpu: bool = True,
+    ) -> None:
+        """
+        Parameters
+        ----------
+        model:
+            Autoregressive causal language model exposing:
+                outputs.logits
+            and optionally:
+                outputs.past_key_values
+
+        tokenizer:
+            Tokenizer associated with the generator model.
+
+        prefix_length:
+            Number of retrieval-free draft tokens k.
+            The paper uses k=20 by default and evaluates k in {10, 20, 30}.
+
+        stop_token_ids:
+            Optional additional token IDs that should terminate prefix
+            decoding. The model's EOS token is handled separately.
+
+        add_special_tokens:
+            Whether tokenizer-defined special tokens should be included.
+
+        use_cache:
+            Reuse past_key_values during autoregressive decoding.
+            This is an implementation optimization; it does not alter the
+            TARG decision rule.
+
+        clone_logits_to_cpu:
+            Store detached logits on CPU. This avoids retaining GPU memory
+            after draft generation. Set False only when the downstream scorer
+            must operate directly on-device.
+        """
+        if model is None:
+            raise ValueError("model must not be None")
+
+        if tokenizer is None:
+            raise ValueError("tokenizer must not be None")
+
+        if not isinstance(prefix_length, int):
+            raise TypeError("prefix_length must be an integer")
+
+        if prefix_length <= 0:
+            raise ValueError("prefix_length must be greater than zero")
+
+        normalized_stop_ids: set[int] = set()
+
+        for token_id in stop_token_ids or ():
+            if not isinstance(token_id, int):
+                raise TypeError("every stop token ID must be an integer")
+
+            if token_id < 0:
+                raise ValueError("stop token IDs must be non-negative")
+
+            normalized_stop_ids.add(token_id)
+
+        self._model = model
+        self._tokenizer = tokenizer
+        self._prefix_length = prefix_length
+        self._stop_token_ids = frozenset(normalized_stop_ids)
+        self._add_special_tokens = add_special_tokens
+        self._use_cache = use_cache
+        self._clone_logits_to_cpu = clone_logits_to_cpu
+
+    @property
+    def prefix_length(self) -> int:
+        return self._prefix_length
+
+    @property
+    def device(self) -> torch.device:
+        """
+        Return the device on which model parameters reside.
+        """
+        try:
+            return next(self._model.parameters()).device
+        except StopIteration as exc:
+            raise RuntimeError(
+                "Unable to determine model device because the model "
+                "has no parameters."
+            ) from exc
+
+    @torch.inference_mode()
+    def generate(
+        self,
+        base_prompt: str,
+    ) -> DraftOutput:
+        """
+        Decode a short retrieval-free prefix from B(q).
+
+        Processing
+        ----------
+        1. Tokenize the base prompt.
+        2. Run autoregressive greedy generation.
+        3. At every generated position:
+           - preserve the complete next-token logits;
+           - identify the top-1 and top-2 logits;
+           - record their margin;
+           - select argmax as the next token.
+        4. Stop after k tokens or a configured stopping token.
+        5. Return the draft and per-step logits.
+
+        Returns
+        -------
+        DraftOutput
+            Immutable draft-generation evidence for later uncertainty
+            scoring.
+        """
+        normalized_prompt = self._validate_prompt(base_prompt)
+        encoded = self._tokenize(normalized_prompt)
+
+        input_ids = encoded["input_ids"]
+        attention_mask = encoded["attention_mask"]
+
+        original_input_ids = input_ids.detach().clone().cpu()
+        original_attention_mask = attention_mask.detach().clone().cpu()
+
+        generated_ids: list[int] = []
+        steps: list[DraftStep] = []
+
+        stopped_on_eos = False
+        stopped_on_custom_token = False
+
+        model_was_training = bool(getattr(self._model, "training", False))
+        self._model.eval()
+
+        try:
+            current_input_ids = input_ids
+            current_attention_mask = attention_mask
+            past_key_values = None
+
+            for position in range(self._prefix_length):
+                outputs = self._forward(
+                    input_ids=current_input_ids,
+                    attention_mask=current_attention_mask,
+                    past_key_values=past_key_values,
+                )
+
+                next_token_logits = self._extract_next_token_logits(outputs)
+                step = self._build_step(
+                    logits=next_token_logits,
+                    position=position,
+                )
+
+                generated_ids.append(step.token_id)
+                steps.append(step)
+
+                if self._is_eos(step.token_id):
+                    stopped_on_eos = True
+                    break
+
+                if step.token_id in self._stop_token_ids:
+                    stopped_on_custom_token = True
+                    break
+
+                next_token_tensor = torch.tensor(
+                    [[step.token_id]],
+                    dtype=input_ids.dtype,
+                    device=self.device,
+                )
+
+                if self._use_cache:
+                    past_key_values = getattr(
+                        outputs,
+                        "past_key_values",
+                        None,
+                    )
+
+                if self._use_cache and past_key_values is not None:
+                    current_input_ids = next_token_tensor
+                else:
+                    current_input_ids = torch.cat(
+                        [current_input_ids, next_token_tensor],
+                        dim=-1,
+                    )
+
+                current_attention_mask = torch.cat(
+                    [
+                        current_attention_mask,
+                        torch.ones(
+                            (1, 1),
+                            dtype=current_attention_mask.dtype,
+                            device=current_attention_mask.device,
+                        ),
+                    ],
+                    dim=-1,
+                )
+
+        finally:
+            if model_was_training:
+                self._model.train()
+
+        generated_token_ids = torch.tensor(
+            generated_ids,
+            dtype=torch.long,
+        )
+
+        generated_text = self._tokenizer.decode(
+            generated_token_ids,
+            skip_special_tokens=True,
+        )
+
+        return DraftOutput(
+            base_prompt=normalized_prompt,
+            prompt_input_ids=original_input_ids,
+            prompt_attention_mask=original_attention_mask,
+            generated_token_ids=generated_token_ids,
+            generated_text=generated_text,
+            steps=tuple(steps),
+            requested_prefix_length=self._prefix_length,
+            actual_prefix_length=len(steps),
+            stopped_on_eos=stopped_on_eos,
+            stopped_on_custom_token=stopped_on_custom_token,
+        )
+
+    def _validate_prompt(
+        self,
+        base_prompt: str,
+    ) -> str:
+        if not isinstance(base_prompt, str):
+            raise TypeError("base_prompt must be a string")
+
+        normalized = base_prompt.strip()
+
+        if not normalized:
+            raise ValueError("base_prompt must not be empty")
+
+        return normalized
+
+    def _tokenize(
+        self,
+        base_prompt: str,
+    ) -> dict[str, Tensor]:
+        encoded = self._tokenizer(
+            base_prompt,
+            return_tensors="pt",
+            add_special_tokens=self._add_special_tokens,
+            truncation=False,
+        )
+
+        if "input_ids" not in encoded:
+            raise RuntimeError(
+                "Tokenizer output does not contain input_ids."
+            )
+
+        input_ids = encoded["input_ids"]
+
+        if not isinstance(input_ids, Tensor):
+            raise TypeError("tokenizer input_ids must be a tensor")
+
+        if input_ids.ndim != 2:
+            raise ValueError(
+                "input_ids must have shape [batch_size, sequence_length]"
+            )
+
+        if input_ids.shape[0] != 1:
+            raise ValueError(
+                "DraftGenerator requires batch size 1."
+            )
+
+        attention_mask = encoded.get("attention_mask")
+
+        if attention_mask is None:
+            attention_mask = torch.ones_like(input_ids)
+
+        if not isinstance(attention_mask, Tensor):
+            raise TypeError("attention_mask must be a tensor")
+
+        if attention_mask.shape != input_ids.shape:
+            raise ValueError(
+                "attention_mask must have the same shape as input_ids"
+            )
+
+        return {
+            "input_ids": input_ids.to(self.device),
+            "attention_mask": attention_mask.to(self.device),
+        }
+
+    def _forward(
+        self,
+        *,
+        input_ids: Tensor,
+        attention_mask: Tensor,
+        past_key_values: Any,
+    ) -> Any:
+        kwargs: dict[str, Any] = {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "use_cache": self._use_cache,
+            "return_dict": True,
+        }
+
+        if past_key_values is not None:
+            kwargs["past_key_values"] = past_key_values
+
+        outputs = self._model(**kwargs)
+
+        if outputs is None:
+            raise RuntimeError("Model returned no output.")
+
+        if not hasattr(outputs, "logits"):
+            raise RuntimeError(
+                "Model output does not expose logits."
+            )
+
+        return outputs
+
+    def _extract_next_token_logits(
+        self,
+        outputs: Any,
+    ) -> Tensor:
+        logits = outputs.logits
+
+        if not isinstance(logits, Tensor):
+            raise TypeError("model logits must be a torch.Tensor")
+
+        if logits.ndim != 3:
+            raise ValueError(
+                "model logits must have shape "
+                "[batch_size, sequence_length, vocabulary_size]"
+            )
+
+        if logits.shape[0] != 1:
+            raise ValueError(
+                "DraftGenerator requires model batch size 1."
+            )
+
+        if logits.shape[-1] < 2:
+            raise ValueError(
+                "vocabulary must contain at least two tokens "
+                "to compute a top-1/top-2 margin"
+            )
+
+        return logits[:, -1, :]
+
+    def _build_step(
+        self,
+        *,
+        logits: Tensor,
+        position: int,
+    ) -> DraftStep:
+        """
+        Build one greedy draft step directly from logits.
+
+        The selected token is argmax(logits). The top-1/top-2 values are
+        retained so the later MarginUncertaintyScorer can compute or verify
+        the logit gap.
+        """
+        top2 = torch.topk(
+            logits,
+            k=2,
+            dim=-1,
+            largest=True,
+            sorted=True,
+        )
+
+        top1_logit_tensor = top2.values[0, 0]
+        top2_logit_tensor = top2.values[0, 1]
+
+        token_id_tensor = torch.argmax(
+            logits,
+            dim=-1,
+        )
+
+        token_id = int(token_id_tensor.item())
+        top1_logit = float(top1_logit_tensor.item())
+        top2_logit = float(top2_logit_tensor.item())
+        logit_margin = top1_logit - top2_logit
+
+        stored_logits = logits[0].detach()
+
+        if self._clone_logits_to_cpu:
+            stored_logits = stored_logits.float().cpu().clone()
+        else:
+            stored_logits = stored_logits.clone()
+
+        return DraftStep(
+            position=position,
+            token_id=token_id,
+            logits=stored_logits,
+            top1_logit=top1_logit,
+            top2_logit=top2_logit,
+            logit_margin=logit_margin,
+        )
+
+    def _is_eos(
+        self,
+        token_id: int,
+    ) -> bool:
+        eos_token_id = self._tokenizer.eos_token_id
+
+        if eos_token_id is None:
+            return False
+
+        return token_id == eos_token_id
+
+==========================
+targ/margin_uncertainty.py
+==========================
+"""
+margin_uncertainty_scorer.py
+
+Margin-based uncertainty scoring for Training-free Adaptive Retrieval
+Gating (TARG).
+
+This module implements the margin uncertainty score defined by:
+
+    g_t = l_(t,1) - l_(t,2)
+
+    u_t = phi(g_t) = exp(-g_t / beta)
+
+    U_mar(k; beta) = (1 / k) * sum_{t=1}^{k} u_t
+
+where l_(t,1) and l_(t,2) are the largest and second-largest logits at
+draft position t.
+
+The scorer:
+- consumes retrieval-free prefix logits;
+- computes margins directly from logits, not probabilities;
+- maps each margin to uncertainty;
+- averages token uncertainties;
+- performs no retrieval decision or threshold calibration.
+
+Reference:
+    Wang, Wei, and Ling,
+    "Retrieval as a Decision: Training-Free Adaptive Gating for
+    Efficient RAG", arXiv:2511.09803.
+"""
+
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass
+from statistics import fmean
+from typing import TYPE_CHECKING, Iterable, Sequence
+
+import torch
+from torch import Tensor
+
+if TYPE_CHECKING:
+    from draft_generator import DraftOutput
+
+
+# ---------------------------------------------------------------------
+# Immutable result models
+# ---------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class TokenMarginScore:
+    """
+    Margin evidence for one generated draft token.
+
+    Attributes
+    ----------
+    position:
+        Zero-based position within the retrieval-free draft.
+
+    token_id:
+        Token selected by DraftGenerator at this position.
+
+    top1_logit:
+        Largest next-token logit at this position.
+
+    top2_logit:
+        Second-largest next-token logit at this position.
+
+    margin:
+        Top-1/top-2 logit gap:
+
+            g_t = top1_logit - top2_logit
+
+    uncertainty:
+        Margin-derived token uncertainty:
+
+            u_t = exp(-g_t / beta)
+
+        Small margins produce values nearer 1. Large margins produce
+        values nearer 0.
+    """
+
+    position: int
+    token_id: int
+    top1_logit: float
+    top2_logit: float
+    margin: float
+    uncertainty: float
+
+
+@dataclass(frozen=True)
+class MarginUncertaintyResult:
+    """
+    Complete output of margin-based TARG uncertainty scoring.
+
+    Attributes
+    ----------
+    beta:
+        Positive scale parameter used by the exponential link.
+
+    score:
+        Prefix-level margin uncertainty U_mar.
+
+    token_scores:
+        Per-token top-1/top-2 margins and mapped uncertainties.
+
+    token_count:
+        Number of draft positions included in the aggregate.
+
+    mean_margin:
+        Arithmetic mean of the raw logit margins.
+
+        This is retained for diagnostics. The TARG retrieval score is
+        `score`, not `mean_margin`.
+
+    minimum_margin:
+        Smallest observed top-1/top-2 margin.
+
+    maximum_margin:
+        Largest observed top-1/top-2 margin.
+
+    minimum_uncertainty:
+        Smallest mapped token uncertainty.
+
+    maximum_uncertainty:
+        Largest mapped token uncertainty.
+    """
+
+    beta: float
+    score: float
+    token_scores: tuple[TokenMarginScore, ...]
+    token_count: int
+    mean_margin: float
+    minimum_margin: float
+    maximum_margin: float
+    minimum_uncertainty: float
+    maximum_uncertainty: float
+
+    @property
+    def margins(self) -> tuple[float, ...]:
+        """Return all raw top-1/top-2 logit gaps."""
+
+        return tuple(item.margin for item in self.token_scores)
+
+    @property
+    def uncertainties(self) -> tuple[float, ...]:
+        """Return all mapped token uncertainties."""
+
+        return tuple(item.uncertainty for item in self.token_scores)
+
+    def as_dict(self) -> dict[str, object]:
+        """
+        Return a serialisable representation suitable for logging,
+        calibration datasets, or experiment records.
+        """
+
+        return {
+            "gate": "margin",
+            "beta": self.beta,
+            "score": self.score,
+            "token_count": self.token_count,
+            "mean_margin": self.mean_margin,
+            "minimum_margin": self.minimum_margin,
+            "maximum_margin": self.maximum_margin,
+            "minimum_uncertainty": self.minimum_uncertainty,
+            "maximum_uncertainty": self.maximum_uncertainty,
+            "token_scores": [
+                {
+                    "position": item.position,
+                    "token_id": item.token_id,
+                    "top1_logit": item.top1_logit,
+                    "top2_logit": item.top2_logit,
+                    "margin": item.margin,
+                    "uncertainty": item.uncertainty,
+                }
+                for item in self.token_scores
+            ],
+        }
+
+
+# ---------------------------------------------------------------------
+# Margin uncertainty scorer
+# ---------------------------------------------------------------------
+
+
+class MarginUncertaintyScorer:
+    """
+    Compute the margin-based TARG uncertainty score.
+
+    TARG obtains next-token logits from a short retrieval-free draft.
+    At every generated position, this scorer finds the two largest logits,
+    calculates their gap, maps the gap through an exponential decay, and
+    averages the mapped values.
+
+    The scorer deliberately does not:
+    - apply softmax;
+    - calculate probability margins;
+    - compare the score with a threshold;
+    - calibrate a threshold;
+    - invoke retrieval;
+    - generate a final answer.
+
+    Those operations belong to separate pipeline components.
+    """
+
+    DEFAULT_BETA: float = 3.0
+
+    def __init__(
+        self,
+        *,
+        beta: float = DEFAULT_BETA,
+    ) -> None:
+        """
+        Parameters
+        ----------
+        beta:
+            Positive scale parameter in:
+
+                phi(g) = exp(-g / beta)
+
+            The paper uses beta=3 by default and tunes beta on the
+            development split.
+        """
+
+        self._beta = self._validate_beta(beta)
+
+    @property
+    def beta(self) -> float:
+        """Return the configured exponential-link scale."""
+
+        return self._beta
+
+    def score(
+        self,
+        draft: DraftOutput,
+    ) -> MarginUncertaintyResult:
+        """
+        Compute U_mar from a DraftOutput.
+
+        The top-two logits are recomputed directly from every stored
+        vocabulary logit vector. This avoids relying on cached probability
+        values or precomputed margins.
+
+        Parameters
+        ----------
+        draft:
+            Retrieval-free draft generated by DraftGenerator.
+
+        Returns
+        -------
+        MarginUncertaintyResult
+            Immutable prefix-level and token-level uncertainty evidence.
+
+        Raises
+        ------
+        TypeError
+            If the draft does not expose the expected attributes.
+
+        ValueError
+            If no draft tokens exist or the logits are malformed.
+        """
+
+        self._validate_draft(draft)
+
+        logits = draft.logits
+        generated_token_ids = draft.generated_token_ids
+
+        return self.score_logits(
+            logits=logits,
+            token_ids=generated_token_ids,
+        )
+
+    def score_logits(
+        self,
+        *,
+        logits: Tensor,
+        token_ids: Tensor | Sequence[int] | None = None,
+    ) -> MarginUncertaintyResult:
+        """
+        Compute U_mar directly from a matrix of prefix logits.
+
+        Parameters
+        ----------
+        logits:
+            Tensor with shape:
+
+                [prefix_length, vocabulary_size]
+
+            Each row must contain the complete next-token logit vector
+            produced at one draft position.
+
+        token_ids:
+            Optional generated token IDs corresponding to each logit row.
+            If omitted, token IDs are recorded as -1.
+
+        Returns
+        -------
+        MarginUncertaintyResult
+            Prefix uncertainty and per-token evidence.
+        """
+
+        normalized_logits = self._validate_logits(logits)
+
+        prefix_length = normalized_logits.shape[0]
+        normalized_token_ids = self._normalize_token_ids(
+            token_ids=token_ids,
+            expected_length=prefix_length,
+        )
+
+        # Compute the two largest raw logits for every prefix position.
+        #
+        # Input:
+        #     [k, vocabulary_size]
+        #
+        # Output:
+        #     [k, 2]
+        top2_logits = torch.topk(
+            normalized_logits,
+            k=2,
+            dim=-1,
+            largest=True,
+            sorted=True,
+        ).values
+
+        top1 = top2_logits[:, 0]
+        top2 = top2_logits[:, 1]
+
+        # Paper-defined logit margin:
+        #
+        #     g_t = l_(t,1) - l_(t,2)
+        #
+        # No softmax operation is applied.
+        margins = top1 - top2
+
+        self._validate_margins(margins)
+
+        # Paper-default monotone link:
+        #
+        #     phi(g_t) = exp(-g_t / beta)
+        token_uncertainties = self.margin_to_uncertainty(margins)
+
+        # Prefix-level margin uncertainty:
+        #
+        #     U_mar = (1 / k) * sum_t phi(g_t)
+        uncertainty_score = self.aggregate_uncertainties(
+            token_uncertainties,
+        )
+
+        token_scores = tuple(
+            TokenMarginScore(
+                position=position,
+                token_id=normalized_token_ids[position],
+                top1_logit=float(top1[position].item()),
+                top2_logit=float(top2[position].item()),
+                margin=float(margins[position].item()),
+                uncertainty=float(token_uncertainties[position].item()),
+            )
+            for position in range(prefix_length)
+        )
+
+        margin_values = tuple(
+            item.margin for item in token_scores
+        )
+        uncertainty_values = tuple(
+            item.uncertainty for item in token_scores
+        )
+
+        return MarginUncertaintyResult(
+            beta=self._beta,
+            score=uncertainty_score,
+            token_scores=token_scores,
+            token_count=prefix_length,
+            mean_margin=fmean(margin_values),
+            minimum_margin=min(margin_values),
+            maximum_margin=max(margin_values),
+            minimum_uncertainty=min(uncertainty_values),
+            maximum_uncertainty=max(uncertainty_values),
+        )
+
+    def compute_margin(
+        self,
+        logits: Tensor,
+    ) -> Tensor:
+        """
+        Compute the top-1/top-2 logit margin for one or more positions.
+
+        Accepted shapes
+        ---------------
+        [vocabulary_size]
+            Returns a scalar tensor.
+
+        [prefix_length, vocabulary_size]
+            Returns shape [prefix_length].
+
+        Formula
+        -------
+            g_t = l_(t,1) - l_(t,2)
+        """
+
+        if not isinstance(logits, Tensor):
+            raise TypeError("logits must be a torch.Tensor")
+
+        if logits.ndim not in (1, 2):
+            raise ValueError(
+                "logits must have shape [vocabulary_size] or "
+                "[prefix_length, vocabulary_size]"
+            )
+
+        if logits.shape[-1] < 2:
+            raise ValueError(
+                "the vocabulary dimension must contain at least two logits"
+            )
+
+        if not torch.is_floating_point(logits):
+            logits = logits.float()
+
+        if not torch.isfinite(logits).all():
+            raise ValueError("logits contain NaN or infinite values")
+
+        top2 = torch.topk(
+            logits,
+            k=2,
+            dim=-1,
+            largest=True,
+            sorted=True,
+        ).values
+
+        margins = top2[..., 0] - top2[..., 1]
+
+        self._validate_margins(margins)
+
+        return margins
+
+    def margin_to_uncertainty(
+        self,
+        margin: Tensor | float,
+    ) -> Tensor:
+        """
+        Apply the paper's exponential margin-to-uncertainty link.
+
+        Formula
+        -------
+            phi(g) = exp(-g / beta)
+
+        Interpretation
+        --------------
+        - g near zero: uncertainty approaches 1.
+        - large g: uncertainty approaches 0.
+
+        Returns
+        -------
+        torch.Tensor
+            Values in the interval (0, 1], subject to finite-precision
+            underflow for extremely large margins.
+        """
+
+        if isinstance(margin, Tensor):
+            margin_tensor = margin
+        elif isinstance(margin, (int, float)):
+            margin_tensor = torch.tensor(
+                margin,
+                dtype=torch.float64,
+            )
+        else:
+            raise TypeError(
+                "margin must be a number or torch.Tensor"
+            )
+
+        if not torch.is_floating_point(margin_tensor):
+            margin_tensor = margin_tensor.float()
+
+        if not torch.isfinite(margin_tensor).all():
+            raise ValueError(
+                "margin contains NaN or infinite values"
+            )
+
+        if torch.any(margin_tensor < 0):
+            raise ValueError(
+                "top-1/top-2 logit margins must be non-negative"
+            )
+
+        return torch.exp(
+            -margin_tensor / self._beta
+        )
+
+    def aggregate_uncertainties(
+        self,
+        uncertainties: Tensor | Sequence[float],
+    ) -> float:
+        """
+        Average per-token uncertainties to produce U_mar.
+
+        Formula
+        -------
+            U_mar(k; beta)
+                = (1 / k) * sum_{t=1}^{k} phi(g_t)
+
+        The aggregate is computed over the actual number of available
+        draft positions. Under the paper's normal protocol, this is k
+        unless generation reaches an applicable stopping condition.
+        """
+
+        if isinstance(uncertainties, Tensor):
+            values = uncertainties
+        else:
+            values = torch.tensor(
+                list(uncertainties),
+                dtype=torch.float64,
+            )
+
+        if values.ndim != 1:
+            raise ValueError(
+                "uncertainties must be one-dimensional"
+            )
+
+        if values.numel() == 0:
+            raise ValueError(
+                "at least one token uncertainty is required"
+            )
+
+        if not torch.isfinite(values).all():
+            raise ValueError(
+                "uncertainties contain NaN or infinite values"
+            )
+
+        if torch.any(values < 0) or torch.any(values > 1):
+            raise ValueError(
+                "margin uncertainties must be within [0, 1]"
+            )
+
+        return float(values.mean().item())
+
+    @staticmethod
+    def _validate_beta(
+        beta: float,
+    ) -> float:
+        if isinstance(beta, bool) or not isinstance(
+            beta,
+            (int, float),
+        ):
+            raise TypeError("beta must be a real number")
+
+        normalized = float(beta)
+
+        if not math.isfinite(normalized):
+            raise ValueError("beta must be finite")
+
+        if normalized <= 0:
+            raise ValueError("beta must be greater than zero")
+
+        return normalized
+
+    @staticmethod
+    def _validate_draft(
+        draft: DraftOutput,
+    ) -> None:
+        if draft is None:
+            raise ValueError("draft must not be None")
+
+        required_attributes = (
+            "logits",
+            "generated_token_ids",
+            "actual_prefix_length",
+        )
+
+        for attribute in required_attributes:
+            if not hasattr(draft, attribute):
+                raise TypeError(
+                    f"draft does not expose required attribute: "
+                    f"{attribute}"
+                )
+
+        if draft.actual_prefix_length <= 0:
+            raise ValueError(
+                "draft must contain at least one generated token"
+            )
+
+        if draft.logits.shape[0] != draft.actual_prefix_length:
+            raise ValueError(
+                "draft logit count does not match "
+                "actual_prefix_length"
+            )
+
+        if (
+            draft.generated_token_ids.numel()
+            != draft.actual_prefix_length
+        ):
+            raise ValueError(
+                "generated token count does not match "
+                "actual_prefix_length"
+            )
+
+    @staticmethod
+    def _validate_logits(
+        logits: Tensor,
+    ) -> Tensor:
+        if not isinstance(logits, Tensor):
+            raise TypeError("logits must be a torch.Tensor")
+
+        if logits.ndim != 2:
+            raise ValueError(
+                "logits must have shape "
+                "[prefix_length, vocabulary_size]"
+            )
+
+        if logits.shape[0] <= 0:
+            raise ValueError(
+                "logits must contain at least one prefix position"
+            )
+
+        if logits.shape[1] < 2:
+            raise ValueError(
+                "vocabulary size must be at least two"
+            )
+
+        if not torch.is_floating_point(logits):
+            logits = logits.float()
+
+        if not torch.isfinite(logits).all():
+            raise ValueError(
+                "logits contain NaN or infinite values"
+            )
+
+        return logits
+
+    @staticmethod
+    def _validate_margins(
+        margins: Tensor,
+    ) -> None:
+        if not torch.isfinite(margins).all():
+            raise ValueError(
+                "computed margins contain NaN or infinite values"
+            )
+
+        # torch.topk guarantees top1 >= top2. The tolerance only protects
+        # against unexpected floating-point behaviour.
+        if torch.any(margins < -1e-7):
+            raise RuntimeError(
+                "computed top-1/top-2 margin is negative"
+            )
+
+    @staticmethod
+    def _normalize_token_ids(
+        *,
+        token_ids: Tensor | Sequence[int] | None,
+        expected_length: int,
+    ) -> tuple[int, ...]:
+        if token_ids is None:
+            return tuple(-1 for _ in range(expected_length))
+
+        if isinstance(token_ids, Tensor):
+            if token_ids.ndim != 1:
+                raise ValueError(
+                    "token_ids must be one-dimensional"
+                )
+
+            normalized = tuple(
+                int(value)
+                for value in token_ids.detach().cpu().tolist()
+            )
+        else:
+            normalized = tuple(
+                int(value)
+                for value in token_ids
+            )
+
+        if len(normalized) != expected_length:
+            raise ValueError(
+                "token_ids length must match the number of logit rows"
+            )
+
+        return normalized
+
+======================
+targ/retrieval_gate.py
+======================
+"""
+retrieval_gate.py
+
+Training-Free Adaptive Retrieval Gating (TARG)
+
+Implements the deterministic retrieval decision described in
+
+    Training-free Retrieval Adaptive Gating (TARG)
+
+Responsibilities
+----------------
+1. Receive a calibrated threshold τ*
+2. Receive an uncertainty score U(q)
+3. Decide whether retrieval should be triggered
+4. Produce an immutable audit record
+
+The RetrievalGate NEVER
+
+- computes uncertainty
+- calibrates thresholds
+- performs retrieval
+- generates answers
+
+Author:
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from enum import Enum
+
+from threshold_calibrator import CalibrationResult
+
+
+# ---------------------------------------------------------
+# Decision reason
+# ---------------------------------------------------------
+
+
+class RetrievalDecisionReason(str, Enum):
+
+    RETRIEVAL_REQUIRED = "retrieval_required"
+
+    RETRIEVAL_NOT_REQUIRED = "retrieval_not_required"
+
+
+# ---------------------------------------------------------
+# Immutable decision
+# ---------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class RetrievalDecision:
+
+    retrieve: bool
+
+    uncertainty_score: float
+
+    threshold: float
+
+    margin_type: str
+
+    calibration_method: str
+
+    reason: RetrievalDecisionReason
+
+    explanation: str
+
+
+# ---------------------------------------------------------
+# Retrieval Gate
+# ---------------------------------------------------------
+
+
+class RetrievalGate:
+
+    """
+    Applies the TARG retrieval rule.
+
+        Retrieve if
+
+            U(q) > τ*
+
+    otherwise answer directly.
+
+    The gate performs no retrieval itself.
+    """
+
+    def __init__(
+
+        self,
+
+        calibration: CalibrationResult,
+
+    ):
+
+        self._validate_calibration(calibration)
+
+        self.calibration = calibration
+
+    # -------------------------------------------------
+
+    def decide(
+
+        self,
+
+        uncertainty_score: float,
+
+    ) -> RetrievalDecision:
+
+        """
+        Apply
+
+            U(q) > τ*
+
+        Returns
+        -------
+        RetrievalDecision
+        """
+
+        self._validate_score(uncertainty_score)
+
+        retrieve = uncertainty_score > self.calibration.threshold
+
+        if retrieve:
+
+            reason = RetrievalDecisionReason.RETRIEVAL_REQUIRED
+
+            explanation = (
+                f"Retrieval triggered because "
+                f"uncertainty ({uncertainty_score:.6f}) "
+                f"exceeds calibrated threshold "
+                f"({self.calibration.threshold:.6f})."
+            )
+
+        else:
+
+            reason = RetrievalDecisionReason.RETRIEVAL_NOT_REQUIRED
+
+            explanation = (
+                f"No retrieval required because "
+                f"uncertainty ({uncertainty_score:.6f}) "
+                f"is below or equal to calibrated threshold "
+                f"({self.calibration.threshold:.6f})."
+            )
+
+        return RetrievalDecision(
+    retrieve=retrieve,
+    uncertainty_score=uncertainty_score,
+    threshold=self.calibration.threshold,
+    margin_type=self.calibration.gate_name,
+    calibration_method=self.calibration.mode,
+    reason=reason,
+    explanation=explanation,
+)
+
+    # -------------------------------------------------
+
+    @staticmethod
+    def _validate_score(score: float) -> None:
+
+        if not isinstance(score, (int, float)):
+            raise TypeError("uncertainty_score must be numeric.")
+
+        if not 0.0 <= score <= 1.0:
+            raise ValueError(
+                "uncertainty_score must lie in [0, 1]."
+        )
+
+    # -------------------------------------------------
+
+    @staticmethod
+    def _validate_calibration(
+
+        calibration: CalibrationResult,
+
+    ) -> None:
+
+        if not isinstance(calibration, CalibrationResult):
+
+            raise TypeError(
+                "Expected CalibrationResult."
+            )
+
+        if calibration.threshold < 0:
+
+            raise ValueError(
+                "Threshold cannot be negative."
+            )
+
+=================
+targ/retrieval.py
+=================
+from __future__ import annotations
+
+from abc import ABC
+from abc import abstractmethod
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class RetrievedDocument:
+
+    id: str
+
+    text: str
+
+    score: float
+
+    metadata: dict
+
+
+@dataclass(frozen=True)
+class RetrievalResult:
+
+    query: str
+
+    documents: list[RetrievedDocument]
+
+    retrieved: bool
+
+    retrieval_backend: str
+
+
+class BaseRetriever(ABC):
+
+    @staticmethod
+    def _validate_request(
+        query: str,
+        top_k: int,
+    ) -> tuple[str, int]:
+
+        if not isinstance(query, str):
+            raise TypeError("query must be a string.")
+
+        query = query.strip()
+
+        if not query:
+            raise ValueError("query must not be empty.")
+
+        if not isinstance(top_k, int):
+            raise TypeError("top_k must be an integer.")
+
+        if top_k <= 0:
+            raise ValueError("top_k must be greater than zero.")
+
+        return query, top_k
+
+    @abstractmethod
+    def retrieve(
+        self,
+        query: str,
+        top_k: int = 5,
+    ) -> RetrievalResult:
+        ...
+
+class VectorRetriever(BaseRetriever):
+
+    def __init__(
+
+        self,
+
+        vector_store,
+
+    ):
+
+        self.vector_store = vector_store
+
+    def retrieve(
+        self,
+        query: str,
+        top_k: int = 5,
+    ) -> RetrievalResult:
+
+        query, top_k = self._validate_request(query, top_k)
+
+        docs = self.vector_store.similarity_search(
+            query,
+            k=top_k,
+        )
+
+        for d in docs:
+            print(d.metadata)
+
+        return RetrievalResult(
+
+            query=query,
+
+            retrieved=True,
+
+            retrieval_backend="VectorStore",
+
+            documents=[
+                RetrievedDocument(
+                    id=d.metadata.get(
+                        "id",
+                        f"doc_{i}",
+                    ),
+                    text=d.page_content,
+                    score=d.metadata.get("score", 0.0),
+                    metadata=d.metadata,
+                )
+                for i, d in enumerate(docs)
+            ],
+        )
+
+=====================
+targ/targ_pipeline.py
+=====================
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from draft_generator import DraftGenerator
+from margin_uncertainty import MarginUncertaintyScorer
+from retrieval_gate import RetrievalGate
+from retrieval import BaseRetriever, RetrievalResult
+from answer_generator import AnswerGenerator
+
+
+@dataclass(frozen=True)
+class PipelineResult:
+
+    query: str
+
+    draft
+
+    margin
+
+    gate
+
+    retrieval: RetrievalResult
+
+    answer: str
+
+class TARGPipeline:
+
+    """
+    Implements the complete TARG workflow.
+
+    The pipeline contains no decision logic beyond
+    orchestrating the independent components.
+    """
+
+    def __init__(
+
+        self,
+
+        draft_generator: DraftGenerator,
+
+        scorer: MarginUncertaintyScorer,
+
+        gate: RetrievalGate,
+
+        retriever: BaseRetriever,
+
+        answer_generator: AnswerGenerator,
+
+    ):
+
+        self.draft_generator = draft_generator
+
+        self.scorer = scorer
+
+        self.gate = gate
+
+        self.retriever = retriever
+
+        self.answer_generator = answer_generator
+
+    def run(
+
+        self,
+
+        query: str,
+
+    ) -> PipelineResult:
+
+        draft = self.draft_generator.generate(
+            query
+        )
+
+        margin = self.scorer.compute(
+            draft=draft
+        )
+
+        gate = self.gate.decide(
+            uncertainty_score=margin.score
+        )
+
+        if gate.retrieve:
+
+            retrieval = self.retriever.retrieve(
+                query=query
+            )
+
+        else:
+
+            retrieval = RetrievalResult(
+
+                query=query,
+
+                retrieved=False,
+
+                retrieval_backend="None",
+
+                documents=[],
+            )
+
+        answer = self.answer_generator.generate(
+
+            query=query,
+
+            draft=draft,
+
+            retrieval=retrieval,
+        )
+
+        return PipelineResult(
+
+            query=query,
+
+            draft=draft,
+
+            margin=margin,
+
+            gate=gate,
+
+            retrieval=retrieval,
+
+            answer=answer,
+        )
+
+============================
+targ/threshold_calibrator.py
+============================
+"""
+threshold_calibrator.py
+
+Offline threshold calibration for Training-free Adaptive Retrieval
+Gating (TARG).
+
+This module determines the retrieval threshold tau from a development
+set after uncertainty scores and both retrieval conditions have already
+been evaluated.
+
+Supported paper-aligned calibration modes
+-----------------------------------------
+1. Accuracy maximisation:
+       tau* = argmax_tau Accuracy_gate(tau)
+
+2. Retrieval-budget calibration:
+       tau = F_U^{-1}(1 - rho)
+
+The runtime retrieval decision is:
+
+       retrieve(q) iff U(q) > tau
+
+This module performs no:
+- draft generation;
+- uncertainty computation;
+- retrieval;
+- answer generation;
+- model training.
+
+Reference
+---------
+"Retrieval as a Decision: Training-Free Adaptive Gating for Efficient RAG"
+arXiv:2511.09803.
+"""
+
+from __future__ import annotations
+
+import json
+import math
+import os
+import tempfile
+
+from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
+from enum import Enum
+from pathlib import Path
+from statistics import fmean
+from typing import Iterable, Literal, Mapping, Sequence
+
+
+# ---------------------------------------------------------------------
+# Enumerations
+# ---------------------------------------------------------------------
+
+
+class CalibrationMode(str, Enum):
+    """Supported TARG threshold-calibration strategies."""
+
+    MAXIMIZE_ACCURACY = "maximize_accuracy"
+    TARGET_RETRIEVAL_BUDGET = "target_retrieval_budget"
+
+
+# ---------------------------------------------------------------------
+# Development-set records
+# ---------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class DevelopmentExample:
+    """
+    One pre-evaluated development-set query.
+
+    Attributes
+    ----------
+    example_id:
+        Stable identifier for the development example.
+
+    uncertainty_score:
+        Scalar gate score U(q), such as U_mar produced by
+        MarginUncertaintyScorer.
+
+    no_retrieval_score:
+        Evaluation score obtained when generating without retrieval:
+            A^(0)(q)
+
+        For exact match this is normally 0.0 or 1.0. It may also be a
+        continuous metric such as token-level F1.
+
+    retrieval_score:
+        Evaluation score obtained when generating with retrieval:
+            A^(1)(q)
+
+    metadata:
+        Optional experiment metadata. It is not used for calibration.
+    """
+
+    example_id: str
+    uncertainty_score: float
+    no_retrieval_score: float
+    retrieval_score: float
+    metadata: Mapping[str, object] | None = None
+
+    @property
+    def retrieval_gain(self) -> float:
+        """
+        Return Delta(q) = A^(1)(q) - A^(0)(q).
+        """
+
+        return self.retrieval_score - self.no_retrieval_score
+
+
+# ---------------------------------------------------------------------
+# Per-threshold evaluation
+# ---------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ThresholdEvaluation:
+    """
+    Performance of one candidate threshold on the development set.
+
+    Attributes
+    ----------
+    threshold:
+        Candidate tau.
+
+    gated_score:
+        Mean development metric after routing each example with:
+            retrieve iff U > tau
+
+    retrieval_rate:
+        Fraction of development examples routed to retrieval.
+
+    retrieved_count:
+        Number of examples for which U > tau.
+
+    skipped_count:
+        Number of examples for which U <= tau.
+
+    mean_selected_gain:
+        Mean retrieval gain included by the gate:
+            mean(Delta(q) * 1[U(q) > tau])
+
+    no_retrieval_baseline:
+        Mean metric if retrieval is never used.
+
+    always_retrieval_baseline:
+        Mean metric if retrieval is always used.
+    """
+
+    threshold: float
+    gated_score: float
+    retrieval_rate: float
+    retrieved_count: int
+    skipped_count: int
+    mean_selected_gain: float
+    no_retrieval_baseline: float
+    always_retrieval_baseline: float
+
+
+# ---------------------------------------------------------------------
+# Saved calibration artifact
+# ---------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class CalibrationResult:
+    """
+    Final calibrated threshold and supporting evidence.
+
+    Attributes
+    ----------
+    threshold:
+        Selected threshold tau.
+
+    mode:
+        Calibration strategy used.
+
+    development_size:
+        Number of examples used.
+
+    achieved_score:
+        Mean gated development metric at the selected threshold.
+
+    achieved_retrieval_rate:
+        Actual fraction satisfying U > tau.
+
+    target_retrieval_rate:
+        Requested rho for budget calibration; otherwise None.
+
+    no_retrieval_score:
+        Development score under Never-RAG.
+
+    always_retrieval_score:
+        Development score under Always-RAG.
+
+    beta:
+        Margin-link beta associated with the scores.
+
+    prefix_length:
+        Prefix length k associated with the scores.
+
+    gate_name:
+        Name of uncertainty gate.
+
+    metric_name:
+        Metric used for calibration, for example "exact_match" or "f1".
+
+    calibrated_at:
+        UTC ISO-8601 timestamp.
+
+    schema_version:
+        Persistence schema version.
+    """
+
+    threshold: float
+    mode: str
+    development_size: int
+    achieved_score: float
+    achieved_retrieval_rate: float
+    target_retrieval_rate: float | None
+    no_retrieval_score: float
+    always_retrieval_score: float
+    beta: float
+    prefix_length: int
+    gate_name: str
+    metric_name: str
+    calibrated_at: str
+    schema_version: int = 1
+
+    def as_dict(self) -> dict[str, object]:
+        """Return a JSON-serialisable representation."""
+
+        return asdict(self)
+
+
+# ---------------------------------------------------------------------
+# Threshold calibrator
+# ---------------------------------------------------------------------
+
+
+class ThresholdCalibrator:
+    """
+    Calibrate a scalar TARG threshold on a development set.
+
+    The calibrator expects each development query to have already been
+    evaluated in both conditions:
+
+    1. Never-RAG:
+           A^(0)(q)
+
+    2. With-RAG:
+           A^(1)(q)
+
+    It also requires the uncertainty score U(q) computed from the
+    retrieval-free draft.
+
+    This separation prevents calibration from rerunning expensive model
+    inference during every threshold sweep.
+    """
+
+    def __init__(
+        self,
+        *,
+        gate_name: str = "margin",
+        metric_name: str = "exact_match",
+        beta: float = 3.0,
+        prefix_length: int = 20,
+        tie_breaker: Literal[
+            "lower_retrieval",
+            "higher_retrieval",
+            "lowest_threshold",
+            "highest_threshold",
+        ] = "lower_retrieval",
+    ) -> None:
+        """
+        Parameters
+        ----------
+        gate_name:
+            Gate being calibrated. For this pipeline it should be "margin".
+
+        metric_name:
+            Development metric used to optimise accuracy.
+
+        beta:
+            Margin uncertainty parameter associated with U_mar.
+
+        prefix_length:
+            Draft prefix length k associated with the scores.
+
+        tie_breaker:
+            Rule applied when several thresholds have identical gated
+            development scores.
+
+            "lower_retrieval":
+                Prefer the threshold with the smallest retrieval rate.
+                This is a cost-conscious default.
+
+            "higher_retrieval":
+                Prefer the largest retrieval rate.
+
+            "lowest_threshold":
+                Prefer the numerically smallest threshold.
+
+            "highest_threshold":
+                Prefer the numerically largest threshold.
+
+        Notes
+        -----
+        The paper specifies maximising development accuracy or matching
+        a target retrieval budget, but it does not prescribe a universal
+        tie-breaking rule. Therefore the selected rule is recorded as an
+        implementation policy rather than presented as a paper requirement.
+        """
+
+        self._gate_name = self._validate_nonempty_text(
+            gate_name,
+            "gate_name",
+        )
+        self._metric_name = self._validate_nonempty_text(
+            metric_name,
+            "metric_name",
+        )
+        self._beta = self._validate_positive_finite(beta, "beta")
+        self._prefix_length = self._validate_positive_integer(
+            prefix_length,
+            "prefix_length",
+        )
+
+        allowed_tie_breakers = {
+            "lower_retrieval",
+            "higher_retrieval",
+            "lowest_threshold",
+            "highest_threshold",
+        }
+
+        if tie_breaker not in allowed_tie_breakers:
+            raise ValueError(
+                f"tie_breaker must be one of "
+                f"{sorted(allowed_tie_breakers)}"
+            )
+
+        self._tie_breaker = tie_breaker
+
+    # -----------------------------------------------------------------
+    # Public calibration API
+    # -----------------------------------------------------------------
+
+    def calibrate_for_accuracy(
+        self,
+        examples: Iterable[DevelopmentExample],
+    ) -> CalibrationResult:
+        """
+        Select tau that maximises the development-set gated metric.
+
+        For each candidate threshold:
+
+            selected_score(q, tau) =
+                A^(1)(q), if U(q) > tau
+                A^(0)(q), otherwise
+
+        The selected threshold is:
+
+            tau* = argmax_tau mean_q selected_score(q, tau)
+
+        Returns
+        -------
+        CalibrationResult
+            Threshold and associated development performance.
+        """
+
+        data = self._validate_examples(examples)
+        evaluations = self.sweep(data)
+
+        best = self._select_best_accuracy_evaluation(evaluations)
+
+        return self._build_result(
+            selected=best,
+            mode=CalibrationMode.MAXIMIZE_ACCURACY,
+            target_retrieval_rate=None,
+            development_size=len(data),
+        )
+
+    def calibrate_for_budget(
+        self,
+        examples: Iterable[DevelopmentExample],
+        *,
+        target_retrieval_rate: float,
+    ) -> CalibrationResult:
+        """
+        Select tau using the empirical uncertainty-score CDF.
+
+        Paper-defined calibration:
+
+            tau = F_U^{-1}(1 - rho)
+
+        where:
+            F_U is the empirical CDF of U on the development set;
+            rho is the target retrieval rate.
+
+        The runtime rule remains:
+
+            retrieve iff U > tau
+
+        Because an empirical distribution is discrete and duplicate scores
+        can occur, the achieved retrieval rate may differ slightly from the
+        requested rate.
+        """
+
+        data = self._validate_examples(examples)
+        rho = self._validate_probability(
+            target_retrieval_rate,
+            "target_retrieval_rate",
+        )
+
+        scores = sorted(
+            item.uncertainty_score
+            for item in data
+        )
+
+        threshold = self._empirical_quantile(
+            scores=scores,
+            probability=1.0 - rho,
+        )
+
+        evaluation = self.evaluate_threshold(
+            data,
+            threshold=threshold,
+        )
+
+        return self._build_result(
+            selected=evaluation,
+            mode=CalibrationMode.TARGET_RETRIEVAL_BUDGET,
+            target_retrieval_rate=rho,
+            development_size=len(data),
+        )
+
+    def sweep(
+        self,
+        examples: Iterable[DevelopmentExample],
+        *,
+        candidate_thresholds: Sequence[float] | None = None,
+    ) -> tuple[ThresholdEvaluation, ...]:
+        """
+        Evaluate the accuracy-efficiency frontier over thresholds.
+
+        If no threshold grid is supplied, the method constructs every
+        threshold needed to represent all distinct routing partitions under:
+
+            retrieve iff U > tau
+
+        Candidate thresholds include:
+        - one value immediately below the minimum score, producing
+          Always-RAG;
+        - each unique observed uncertainty score, including the maximum,
+          which produces Never-RAG under the strict `>` rule.
+
+        This exact partition sweep is more reliable than imposing an
+        arbitrary fixed grid.
+        """
+
+        data = self._validate_examples(examples)
+
+        if candidate_thresholds is None:
+            thresholds = self._routing_complete_thresholds(data)
+        else:
+            thresholds = self._validate_thresholds(
+                candidate_thresholds
+            )
+
+        return tuple(
+            self.evaluate_threshold(
+                data,
+                threshold=threshold,
+            )
+            for threshold in thresholds
+        )
+
+    def evaluate_threshold(
+        self,
+        examples: Iterable[DevelopmentExample],
+        *,
+        threshold: float,
+    ) -> ThresholdEvaluation:
+        """
+        Evaluate one threshold using TARG's strict retrieval condition.
+        """
+
+        data = self._validate_examples(examples)
+        tau = self._validate_finite_number(
+            threshold,
+            "threshold",
+        )
+
+        selected_scores: list[float] = []
+        selected_gains: list[float] = []
+        retrieved_count = 0
+
+        for example in data:
+            should_retrieve = (
+                example.uncertainty_score > tau
+            )
+
+            if should_retrieve:
+                retrieved_count += 1
+                selected_scores.append(
+                    example.retrieval_score
+                )
+                selected_gains.append(
+                    example.retrieval_gain
+                )
+            else:
+                selected_scores.append(
+                    example.no_retrieval_score
+                )
+                selected_gains.append(0.0)
+
+        development_size = len(data)
+        skipped_count = development_size - retrieved_count
+
+        no_retrieval_baseline = fmean(
+            item.no_retrieval_score
+            for item in data
+        )
+        always_retrieval_baseline = fmean(
+            item.retrieval_score
+            for item in data
+        )
+
+        return ThresholdEvaluation(
+            threshold=tau,
+            gated_score=fmean(selected_scores),
+            retrieval_rate=(
+                retrieved_count / development_size
+            ),
+            retrieved_count=retrieved_count,
+            skipped_count=skipped_count,
+            mean_selected_gain=fmean(selected_gains),
+            no_retrieval_baseline=no_retrieval_baseline,
+            always_retrieval_baseline=always_retrieval_baseline,
+        )
+
+    # -----------------------------------------------------------------
+    # Persistence
+    # -----------------------------------------------------------------
+
+    def save(
+        self,
+        result: CalibrationResult,
+        path: str | Path,
+    ) -> Path:
+        """
+        Save a calibration artifact atomically as JSON.
+
+        Atomic replacement prevents inference workers from reading a
+        partially written threshold file.
+        """
+
+        if not isinstance(result, CalibrationResult):
+            raise TypeError(
+                "result must be a CalibrationResult"
+            )
+
+        destination = Path(path).expanduser().resolve()
+        destination.parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        payload = json.dumps(
+            result.as_dict(),
+            indent=2,
+            sort_keys=True,
+            ensure_ascii=False,
+            allow_nan=False,
+        )
+
+        temporary_path: Path | None = None
+
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=destination.parent,
+                prefix=f".{destination.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as handle:
+                handle.write(payload)
+                handle.write("\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+                temporary_path = Path(handle.name)
+
+            os.replace(temporary_path, destination)
+
+        except Exception:
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)
+            raise
+
+        return destination
+
+    @staticmethod
+    def load(
+        path: str | Path,
+    ) -> CalibrationResult:
+        """
+        Load and validate a saved calibration artifact.
+        """
+
+        source = Path(path).expanduser().resolve()
+
+        if not source.is_file():
+            raise FileNotFoundError(
+                f"Calibration file does not exist: {source}"
+            )
+
+        with source.open(
+            "r",
+            encoding="utf-8",
+        ) as handle:
+            payload = json.load(handle)
+
+        if not isinstance(payload, dict):
+            raise ValueError(
+                "Calibration artifact must contain a JSON object"
+            )
+
+        required_fields = {
+            "threshold",
+            "mode",
+            "development_size",
+            "achieved_score",
+            "achieved_retrieval_rate",
+            "target_retrieval_rate",
+            "no_retrieval_score",
+            "always_retrieval_score",
+            "beta",
+            "prefix_length",
+            "gate_name",
+            "metric_name",
+            "calibrated_at",
+            "schema_version",
+        }
+
+        missing = required_fields - payload.keys()
+
+        if missing:
+            raise ValueError(
+                "Calibration artifact is missing fields: "
+                + ", ".join(sorted(missing))
+            )
+
+        result = CalibrationResult(
+            threshold=float(payload["threshold"]),
+            mode=str(payload["mode"]),
+            development_size=int(
+                payload["development_size"]
+            ),
+            achieved_score=float(
+                payload["achieved_score"]
+            ),
+            achieved_retrieval_rate=float(
+                payload["achieved_retrieval_rate"]
+            ),
+            target_retrieval_rate=(
+                None
+                if payload["target_retrieval_rate"] is None
+                else float(
+                    payload["target_retrieval_rate"]
+                )
+            ),
+            no_retrieval_score=float(
+                payload["no_retrieval_score"]
+            ),
+            always_retrieval_score=float(
+                payload["always_retrieval_score"]
+            ),
+            beta=float(payload["beta"]),
+            prefix_length=int(payload["prefix_length"]),
+            gate_name=str(payload["gate_name"]),
+            metric_name=str(payload["metric_name"]),
+            calibrated_at=str(payload["calibrated_at"]),
+            schema_version=int(payload["schema_version"]),
+        )
+
+        ThresholdCalibrator._validate_loaded_result(result)
+
+        return result
+
+    # -----------------------------------------------------------------
+    # Internal selection
+    # -----------------------------------------------------------------
+
+    def _select_best_accuracy_evaluation(
+        self,
+        evaluations: Sequence[ThresholdEvaluation],
+    ) -> ThresholdEvaluation:
+        if not evaluations:
+            raise ValueError(
+                "at least one threshold evaluation is required"
+            )
+
+        best_score = max(
+            item.gated_score
+            for item in evaluations
+        )
+
+        tied = [
+            item
+            for item in evaluations
+            if math.isclose(
+                item.gated_score,
+                best_score,
+                rel_tol=1e-12,
+                abs_tol=1e-12,
+            )
+        ]
+
+        if self._tie_breaker == "lower_retrieval":
+            return min(
+                tied,
+                key=lambda item: (
+                    item.retrieval_rate,
+                    -item.threshold,
+                ),
+            )
+
+        if self._tie_breaker == "higher_retrieval":
+            return max(
+                tied,
+                key=lambda item: (
+                    item.retrieval_rate,
+                    -item.threshold,
+                ),
+            )
+
+        if self._tie_breaker == "lowest_threshold":
+            return min(
+                tied,
+                key=lambda item: item.threshold,
+            )
+
+        return max(
+            tied,
+            key=lambda item: item.threshold,
+        )
+
+    def _build_result(
+        self,
+        *,
+        selected: ThresholdEvaluation,
+        mode: CalibrationMode,
+        target_retrieval_rate: float | None,
+        development_size: int,
+    ) -> CalibrationResult:
+        return CalibrationResult(
+            threshold=selected.threshold,
+            mode=mode.value,
+            development_size=development_size,
+            achieved_score=selected.gated_score,
+            achieved_retrieval_rate=(
+                selected.retrieval_rate
+            ),
+            target_retrieval_rate=target_retrieval_rate,
+            no_retrieval_score=(
+                selected.no_retrieval_baseline
+            ),
+            always_retrieval_score=(
+                selected.always_retrieval_baseline
+            ),
+            beta=self._beta,
+            prefix_length=self._prefix_length,
+            gate_name=self._gate_name,
+            metric_name=self._metric_name,
+            calibrated_at=datetime.now(
+                timezone.utc
+            ).isoformat(),
+        )
+
+    # -----------------------------------------------------------------
+    # Threshold construction
+    # -----------------------------------------------------------------
+
+    @staticmethod
+    def _routing_complete_thresholds(
+        examples: Sequence[DevelopmentExample],
+    ) -> tuple[float, ...]:
+        unique_scores = sorted({
+            item.uncertainty_score
+            for item in examples
+        })
+
+        minimum = unique_scores[0]
+
+        # Under U > tau, a threshold just below the minimum routes every
+        # development example to retrieval.
+        all_retrieve_threshold = math.nextafter(
+            minimum,
+            -math.inf,
+        )
+
+        return tuple(
+            [all_retrieve_threshold, *unique_scores]
+        )
+
+    @staticmethod
+    def _empirical_quantile(
+        *,
+        scores: Sequence[float],
+        probability: float,
+    ) -> float:
+        """
+        Return the inverse empirical CDF:
+
+            F_n^{-1}(p) = inf{x : F_n(x) >= p}
+
+        This is the order-statistic definition rather than an interpolated
+        numerical quantile.
+        """
+
+        if not scores:
+            raise ValueError(
+                "scores must not be empty"
+            )
+
+        if probability <= 0.0:
+            # A threshold immediately below min gives retrieval rate 1.
+            return math.nextafter(
+                scores[0],
+                -math.inf,
+            )
+
+        if probability >= 1.0:
+            # tau=max(U) gives retrieval rate 0 because routing uses U > tau.
+            return scores[-1]
+
+        n = len(scores)
+
+        # Smallest one-based rank r for which r/n >= probability.
+        rank = math.ceil(probability * n)
+
+        # Convert to zero-based index.
+        index = max(0, min(n - 1, rank - 1))
+
+        return scores[index]
+
+    # -----------------------------------------------------------------
+    # Validation
+    # -----------------------------------------------------------------
+
+    @classmethod
+    def _validate_examples(
+        cls,
+        examples: Iterable[DevelopmentExample],
+    ) -> tuple[DevelopmentExample, ...]:
+        if examples is None:
+            raise ValueError(
+                "examples must not be None"
+            )
+
+        data = tuple(examples)
+
+        if not data:
+            raise ValueError(
+                "development set must contain at least one example"
+            )
+
+        seen_ids: set[str] = set()
+
+        for position, example in enumerate(data):
+            if not isinstance(
+                example,
+                DevelopmentExample,
+            ):
+                raise TypeError(
+                    f"development item {position} must be "
+                    "a DevelopmentExample"
+                )
+
+            example_id = cls._validate_nonempty_text(
+                example.example_id,
+                f"examples[{position}].example_id",
+            )
+
+            if example_id in seen_ids:
+                raise ValueError(
+                    f"duplicate example_id: {example_id}"
+                )
+
+            seen_ids.add(example_id)
+
+            uncertainty = cls._validate_finite_number(
+                example.uncertainty_score,
+                f"examples[{position}].uncertainty_score",
+            )
+
+            # Margin U_mar should lie in (0, 1], although zero can occur
+            # numerically through exponential underflow.
+            if uncertainty < 0.0 or uncertainty > 1.0:
+                raise ValueError(
+                    f"examples[{position}].uncertainty_score "
+                    "must be within [0, 1]"
+                )
+
+            cls._validate_finite_number(
+                example.no_retrieval_score,
+                f"examples[{position}].no_retrieval_score",
+            )
+            cls._validate_finite_number(
+                example.retrieval_score,
+                f"examples[{position}].retrieval_score",
+            )
+
+        return data
+
+    @classmethod
+    def _validate_thresholds(
+        cls,
+        thresholds: Sequence[float],
+    ) -> tuple[float, ...]:
+        if not thresholds:
+            raise ValueError(
+                "candidate_thresholds must not be empty"
+            )
+
+        normalized = sorted({
+            cls._validate_finite_number(
+                threshold,
+                "candidate threshold",
+            )
+            for threshold in thresholds
+        })
+
+        return tuple(normalized)
+
+    @staticmethod
+    def _validate_loaded_result(
+        result: CalibrationResult,
+    ) -> None:
+        finite_fields = {
+            "threshold": result.threshold,
+            "achieved_score": result.achieved_score,
+            "achieved_retrieval_rate": (
+                result.achieved_retrieval_rate
+            ),
+            "no_retrieval_score": (
+                result.no_retrieval_score
+            ),
+            "always_retrieval_score": (
+                result.always_retrieval_score
+            ),
+            "beta": result.beta,
+        }
+
+        for name, value in finite_fields.items():
+            if not math.isfinite(value):
+                raise ValueError(
+                    f"loaded {name} must be finite"
+                )
+
+        if result.development_size <= 0:
+            raise ValueError(
+                "loaded development_size must be positive"
+            )
+
+        if result.prefix_length <= 0:
+            raise ValueError(
+                "loaded prefix_length must be positive"
+            )
+
+        if result.beta <= 0:
+            raise ValueError(
+                "loaded beta must be positive"
+            )
+
+        if not 0.0 <= result.achieved_retrieval_rate <= 1.0:
+            raise ValueError(
+                "loaded achieved_retrieval_rate must lie in [0, 1]"
+            )
+
+        if result.target_retrieval_rate is not None:
+            if not 0.0 <= result.target_retrieval_rate <= 1.0:
+                raise ValueError(
+                    "loaded target_retrieval_rate must lie in [0, 1]"
+                )
+
+        valid_modes = {
+            item.value
+            for item in CalibrationMode
+        }
+
+        if result.mode not in valid_modes:
+            raise ValueError(
+                f"loaded calibration mode is invalid: {result.mode}"
+            )
+
+        if result.schema_version != 1:
+            raise ValueError(
+                "unsupported calibration schema version: "
+                f"{result.schema_version}"
+            )
+
+    @staticmethod
+    def _validate_probability(
+        value: float,
+        name: str,
+    ) -> float:
+        normalized = ThresholdCalibrator._validate_finite_number(
+            value,
+            name,
+        )
+
+        if normalized < 0.0 or normalized > 1.0:
+            raise ValueError(
+                f"{name} must lie in [0, 1]"
+            )
+
+        return normalized
+
+    @staticmethod
+    def _validate_positive_finite(
+        value: float,
+        name: str,
+    ) -> float:
+        normalized = ThresholdCalibrator._validate_finite_number(
+            value,
+            name,
+        )
+
+        if normalized <= 0.0:
+            raise ValueError(
+                f"{name} must be greater than zero"
+            )
+
+        return normalized
+
+    @staticmethod
+    def _validate_positive_integer(
+        value: int,
+        name: str,
+    ) -> int:
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise TypeError(
+                f"{name} must be an integer"
+            )
+
+        if value <= 0:
+            raise ValueError(
+                f"{name} must be greater than zero"
+            )
+
+        return value
+
+    @staticmethod
+    def _validate_finite_number(
+        value: float,
+        name: str,
+    ) -> float:
+        if isinstance(value, bool) or not isinstance(
+            value,
+            (int, float),
+        ):
+            raise TypeError(
+                f"{name} must be a real number"
+            )
+
+        normalized = float(value)
+
+        if not math.isfinite(normalized):
+            raise ValueError(
+                f"{name} must be finite"
+            )
+
+        return normalized
+
+    @staticmethod
+    def _validate_nonempty_text(
+        value: str,
+        name: str,
+    ) -> str:
+        if not isinstance(value, str):
+            raise TypeError(
+                f"{name} must be a string"
+            )
+
+        normalized = value.strip()
+
+        if not normalized:
+            raise ValueError(
+                f"{name} must not be empty"
+            )
+
+        return normalized
