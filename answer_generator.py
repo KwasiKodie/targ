@@ -295,3 +295,43 @@ class AnswerGenerator:
             f"{query}\n\n"
             "Answer:\n"
         )
+    
+    @staticmethod
+    def _validate_query(
+        query: str,
+    ) -> str:
+        """
+        Validate and normalize the input query.
+
+        Parameters
+        ----------
+        query
+            User question.
+
+        Returns
+        -------
+        str
+            Normalized query.
+
+        Raises
+        ------
+        TypeError
+            If query is not a string.
+
+        ValueError
+            If query is empty after stripping whitespace.
+        """
+
+        if not isinstance(query, str):
+            raise TypeError(
+                "query must be a string."
+            )
+        
+        query = query.strip()
+
+        if not query:
+            raise ValueError(
+                "query must not be empty."
+            )
+        
+        return query
