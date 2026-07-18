@@ -259,7 +259,7 @@ class AnswerEvaluator(BaseAnswerEvaluator):
                 f"{name} must be a string."
             )
         
-        text = text.trip()
+        text = text.strip()
 
         if not text:
             raise ValueError(
