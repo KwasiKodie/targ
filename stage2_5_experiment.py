@@ -134,13 +134,15 @@ class ExperimentResult:
 
     comparisons: tuple[RetrievalComparison, ...]
 
-    development_example: tuple[Any, ...]
+    development_examples: tuple[Any, ...]
 
     mean_no_retrieval_score: float
 
     mean_retrieval_score: float
 
     mean_improvement: float
+
+    retrieval_helped_count: int
 
     retrieval_hurt_count: int
 
@@ -619,7 +621,7 @@ class Stage2_5ExperimentRunner:
 
         return ExperimentResult(
             comparisons=tuple(comparisons),
-            development_example=tuple(
+            development_examples=tuple(
                 development_examples
             ),
             mean_no_retrieval_score=(
