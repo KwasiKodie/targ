@@ -774,7 +774,7 @@ class Stage2_5ExperimentRunner:
                 
             example_id = (
                 Stage2_5ExperimentRunner
-                .validate_example_id(
+                ._validate_example_id(
                     record.example_id
                 )
             )
