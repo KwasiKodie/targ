@@ -96,14 +96,30 @@ class RetrievalComparison:
         return self.no_retrieval_evaluation.overall_score
     
     @property
+    def retrieval_score(self) -> float:
+        """
+        Evaluation score obtained with retrieval.
+        """
+
+        return self.retrieval_evaluation.overall_score 
+    
+    @property
+    def retrieval_no_effect(self) -> bool:
+        """
+        Whether retrieval produced exactly the same evaluation score.
+        """
+
+        return self.improvement == 0.0
+    
+    @property
     def improvement(self) -> float:
         """
         Absolute improvement obtained by retrieval.
         """
 
         return (
-            self.retrieval_score
-            - self.no_retrieval_score
+            self.retrieval_evaluation.overall_score
+            - self.no_retrieval_evaluation.overall_score
         )
     
     @property
