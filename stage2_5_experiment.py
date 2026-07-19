@@ -628,17 +628,8 @@ class Stage2_5ExperimentRunner:
                 sum(improvements)
                 / comparison_count
             ),
-            mean_improvement=(
-                sum(improvements)
-                / comparison_count
-            ),
-            mean_improvement=(
-                sum(improvements)
-                / comparison_count
-            ),
             retrieval_helped_count=helped_count,
             retrieval_hurt_count=hurt_count,
-            retrieval_no_effect_count=no_effect_count,
             retrieval_no_effect_count=no_effect_count,
         )
     
