@@ -2820,3 +2820,2525 @@ class ThresholdCalibrator:
             )
 
         return normalized
+
+========================
+targ/answer_evaluator.py
+========================
+"""
+answer_evaluator.py
+
+Answer evaluation for Training-Free Adaptive Retrieval Gating (TARG).
+
+This module evaluates generated answer against reference answers.
+
+Responsibilities
+----------------
+1. Compare a candidate answer with a reference answer.
+2. Compute one or more evaluation metrics.
+3. Produce immutable evaluation evidence.
+
+The evaluator NEVER 
+
+- generates answers
+- performs retrieval
+- computes uncertainty
+- calibrates thresholds
+- makes retrieval decisions
+
+Initially only Exact Match is implemented.
+The design intentionally allows future metrics such as:
+
+- Token F1
+- ROUGE 
+- BLEU
+- BERTScore
+
+Paper
+-----
+Wang, Wei, and Ling,
+"Retrieval as a Decision: Training-Free Adaptive Gating for Efficient RAG"
+arXiv:2511.09803
+"""
+
+from __future__ import annotations 
+
+import re
+import string
+
+from abc import ABC
+from abc import abstractmethod
+from dataclasses import dataclass
+from enum import Enum
+
+# --------------------------------------------------------------
+# Metric enumeration
+# --------------------------------------------------------------
+
+class EvaluationMetric(str, Enum):
+
+    EXACT_MATCH = "exact_match"
+
+# --------------------------------------------------------------
+# Immutable outputs
+# --------------------------------------------------------------
+
+@dataclass(frozen=True)
+class MetricResult:
+    """
+    Result for one evaluation metric.
+    """
+
+    metric: EvaluationMetric
+
+    score: float
+
+@dataclass(frozen=True)
+class EvaluationResult:
+    """
+    Immutable evidence describing one answer evaluation.
+    """
+
+    # ----------------------------------------------------------------------
+    # Raw evidence
+    # ----------------------------------------------------------------------
+
+    reference_answer: str
+
+    candidate_answer: str
+
+    # ----------------------------------------------------------------------
+    # Normaized evidence
+    # ----------------------------------------------------------------------
+
+    normalized_reference: str
+
+    normalized_candidate: str
+
+    # ----------------------------------------------------------------------
+    # Evaluation evidence
+    # ----------------------------------------------------------------------
+
+    metric_results: tuple[MetricResult, ...]
+    
+    overall_score: float
+
+    @property
+    def metrics(self) -> dict[str, float]:
+        """
+        Convenience mapping from metric name to score.
+        """
+
+        return {
+            result.metric.value: result.score
+            for result in self.metric_results
+        }
+    
+    @property
+    def matched_after_normalization(self) -> bool:
+        """
+        Whether the normalized strings are identical.
+        """
+
+        return (
+            self.normalized_reference
+            == self.normalized_candidate
+        )
+# --------------------------------------------------------------------------
+# Abstract evaluator
+# --------------------------------------------------------------------------
+
+class BaseAnswerEvaluator(ABC):
+
+    @abstractmethod
+    def evaluate(
+        self,
+        *,
+        reference: str,
+        candidate: str,
+    ) -> EvaluationResult:
+        
+        reference_normalized = self._normalize(reference)
+        
+        candidate_normalized = self._normalize(candidate)
+
+
+# --------------------------------------------------------------------------
+# Exact Match evaluator
+# --------------------------------------------------------------------------
+
+class AnswerEvaluator(BaseAnswerEvaluator):
+
+    """
+    Exact Match evaluator.
+
+    Exact Match is currently the default metric because
+    ThresholdCalibrator already defaults to 
+
+        metric_name="exact_match"
+
+    Additional metrics can be added later without changing
+    the public interface.
+    """
+
+    # ---------------------------------------------------------------------
+
+    def evaluate(
+        self,
+        *,
+        reference: str,
+        candidate: str,
+    ) -> EvaluationResult:
+        
+        reference = self._validate_text(
+            reference,
+            "reference",
+        )
+
+        candidate = self._validate_text(
+            candidate,
+            "candidate",
+        )
+
+        normalized_reference = self._normalize(reference)
+
+        normalized_candidate = self._normalize(candidate)
+
+        score = self._exact_match(
+            normalized_reference,
+            normalized_candidate,
+        )
+
+        result = MetricResult(
+            metric=EvaluationMetric.EXACT_MATCH,
+            score=score,
+        )
+
+        return EvaluationResult(
+            reference_answer=reference,
+            candidate_answer=candidate,
+            normalized_reference=normalized_reference,
+            normalized_candidate=normalized_candidate,
+            metric_results=(result,),
+            overall_score=score,
+        )
+    
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _exact_match(
+        normalized_reference: str,
+        normalized_candidate: str,
+    ) -> float:
+        """
+        Compute Exact Match from already-normalized text.
+        """
+
+        return float(
+            normalized_reference
+            == normalized_candidate
+        )
+    
+    # -----------------------------------------------------------------
+
+    @staticmethod
+    def _normalize(
+        text: str,
+    ) -> str:
+        """
+        Normalize text before Exact Match.
+
+        Steps
+        -----
+        1. lowercase
+        2. remove punctuation
+        3. collapse whitespace
+        """
+
+        text = text.lower()
+
+        text = text.translate(
+            str.maketrans(
+                "",
+                "",
+                string.punctuation,
+            )
+        )
+
+        text = re.sub(
+            r"\s+",
+            " ",
+            text,
+        )
+
+        return text.strip()
+    
+    # ------------------------------------------------------
+
+    @staticmethod
+    def _validate_text(
+        text: str,
+        name: str,
+    ) -> str:
+        
+        if not isinstance(text, str):
+            raise TypeError(
+                f"{name} must be a string."
+            )
+        
+        text = text.strip()
+
+        if not text:
+            raise ValueError(
+                f"{name} must not be empty."
+            )
+        
+        return text
+
+========================
+targ/answer_generator.py
+========================
+"""
+answer_generator.py
+
+Final answer generation for Training-Free Adaptive Retrieval Gating (TARG).
+
+This module generates the final answer after the retrieval decision has already
+been made.
+
+Responsibilities
+----------------
+1. Generate an answer without retrieval.
+2. Generate an answer using retrieval context.
+3. Reuse the same underlying language model used by DraftGenerator.
+4. Produce immutable answer evidence.
+
+The AnswerGenerator NEVER
+
+- computes uncertainty
+- calibrates thresholds
+- performs retrieval
+- decides whether retrieval is required 
+- evalutates answers
+
+Paper
+-----
+Wang, Wei, and Ling,
+"Retrieval as a Decision: Training-Free Adaptive Gating for Efficient RAG"
+arXiv:2511.09803
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Protocol
+
+import torch
+from torch import Tensor
+
+from retrieval import RetrievalResult
+
+# -------------------------------------------------------------------
+# Tokenizer protocol
+# -------------------------------------------------------------------
+
+
+class TokenizerProtocol(Protocol):
+
+    eos_token_id: int | None
+
+    def __call__(
+            self,
+            text: str,
+            *,
+            return_tensors: str,
+            add_special_tokens: bool = True,
+            truncation: bool = False,
+    ):
+        ...
+
+    def decode(
+        self,
+        token_ids,
+        *,
+        skip_special_tokens: bool = True,
+    ) -> str:
+        ...
+
+
+# --------------------------------------------------------------------
+# Immutable outputs
+#---------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class AnswerOutput:
+    """
+    Immutable evidence describing one final answer generation.
+
+    Unlike DraftOutput, this object stores the complete generation
+    evidence required for evaluation, auditing and reproducibility.
+    """
+
+    # ----------------------------------------------------------------
+    # Input evidence
+    # ----------------------------------------------------------------
+
+    query: str
+
+    prompt: str
+
+    prompt_input_ids: Tensor 
+
+    prompt_attention_mask: Tensor 
+
+    # ----------------------------------------------------------------
+    # Generated evidence
+    # ----------------------------------------------------------------
+
+    generated_token_ids: Tensor
+
+    generated_text: str
+
+    requested_max_new_tokens: int
+
+    actual_generated_tokens: int
+
+    stopped_on_eos: bool
+
+    # ----------------------------------------------------------------
+    # Retrieval evidence
+    # ----------------------------------------------------------------
+
+    used_retrieval: bool
+
+    retrieved_document_count: int 
+
+
+    @property
+    def answer_length(self) -> int:
+        """
+        Number of whitespace-separated words in the decoded answer.
+        """
+
+        return len(self.generated_text.split())
+
+# --------------------------------------------------------------------
+# Generator
+# --------------------------------------------------------------------
+
+class AnswerGenerator:
+
+    """
+    Generate the final answer.
+
+    The same LLM is used irrespective of whether retrieval occurs.
+    """
+
+    def __init__(
+        self,
+        *,
+        model: Any,
+        tokenizer: TokenizerProtocol,
+        max_new_tokens: int = 256,
+        add_special_tokens: bool = True,
+    ):
+        
+        if model is None:
+            raise ValueError("model must not be None.")
+        
+        if tokenizer is None:
+            raise ValueError("tokenizer must not be None.")
+        
+        if max_new_tokens <= 0:
+            raise ValueError(
+                "max_new_tokens must be positive."
+            )
+        
+        self.model = model
+        self.tokenizer = tokenizer
+        self.max_new_tokens = max_new_tokens
+        self.add_special_tokens = add_special_tokens
+
+    # -------------------------------------------------------------
+
+    @property
+    def device(self):
+
+        return next(self.model.parameters()).device
+    
+    # ------------------------------------------------------------
+
+    @torch.inference_mode()
+    def generate(
+        self,
+        *,
+        query: str,
+        retrieval: RetrievalResult | None = None,
+    ) -> AnswerOutput:
+        
+        query = self._validate_query(query)
+
+        prompt = self._build_prompt(
+            query=query,
+            retrieval=retrieval,
+        )
+
+        encoded = self.tokenizer(
+            prompt,
+            return_tensors="pt",
+            add_special_tokens=self.add_special_tokens,
+        )
+
+        encoded = {
+            k: v.to(self.device)
+            for k, v in encoded.items()
+        }
+
+        prompt_input_ids = (
+            encoded["input_ids"]
+            .detach()
+            .clone()
+            .cpu()
+        )
+
+        prompt_attention_mask = (
+            encoded["attention_mask"]
+            .detach()
+            .clone()
+            .cpu()
+        )
+
+        outputs = self.model.generate(
+            **encoded,
+            max_new_tokens=self.max_new_tokens,
+            do_sample=False,
+            pad_token_id=self.tokenizer.eos_token_id,
+        )
+
+        generated = outputs[0][
+            encoded["input_ids"].shape[-1]:
+        ]
+
+        generated_token_ids = (
+            generated
+            .detach()
+            .clone()
+            .cpu()
+        )
+
+        generated_text = self.tokenizer.decode(
+            generated_token_ids,
+            skip_special_tokens=True,
+        ).strip()
+
+        stopped_on_eos = False
+
+        if (
+            generated_token_ids.numel() > 0
+            and self.tokenizer.eos_token_id is not None
+        ):
+            
+            stopped_on_eos = (
+                int(generated_token_ids[-1].item())
+                == self.tokenizer.eos_token_id
+            )
+
+        document_count = (
+            0
+            if retrieval is None
+            else len(retrieval.documents)
+        )
+
+        return AnswerOutput(
+            query=query,
+
+            prompt=prompt,
+
+            prompt_input_ids=prompt_input_ids,
+            prompt_attention_mask=prompt_attention_mask,
+            generated_token_ids=generated_token_ids,
+            generated_text=generated_text,
+            requested_max_new_tokens=self.max_new_tokens,
+            actual_generated_tokens=generated_token_ids.numel(),
+            stopped_on_eos=stopped_on_eos,
+            used_retrieval=document_count > 0,
+            retrieved_document_count=document_count,
+        )
+    
+    def _build_prompt(
+            self,
+            *,
+            query: str,
+            retrieval: RetrievalResult | None,
+    ) -> str:
+        
+        if (
+            retrieval is None
+            or not retrieval.documents
+        ):
+            
+            return (
+                "Answer the following question concisely.\n\n"
+                f"Question:\n{query}\n\n"
+                "Answer:\n"
+            )
+        context = "\n\n".join(
+            document.text
+            for document in retrieval.documents
+        )
+
+        return (
+            "Answer the question using ONLY the provided context.\n\n"
+            "Context:\n"
+            f"{context}\n\n"
+            "Question:\n"
+            f"{query}\n\n"
+            "Answer:\n"
+        )
+    
+    @staticmethod
+    def _validate_query(
+        query: str,
+    ) -> str:
+        """
+        Validate and normalize the input query.
+
+        Parameters
+        ----------
+        query
+            User question.
+
+        Returns
+        -------
+        str
+            Normalized query.
+
+        Raises
+        ------
+        TypeError
+            If query is not a string.
+
+        ValueError
+            If query is empty after stripping whitespace.
+        """
+
+        if not isinstance(query, str):
+            raise TypeError(
+                "query must be a string."
+            )
+        
+        query = query.strip()
+
+        if not query:
+            raise ValueError(
+                "query must not be empty."
+            )
+        
+        return query
+
+=========================
+rag/development_record.py
+=========================
+"""
+development_record.py
+
+Immutable labelled question-answer example used during the 
+Stage 2.5 retrieval comparison experiment.
+
+A DevelopmentRecord represents one example from the labelled 
+development dataset. It contains only the information required to
+execute the experiment.
+
+It is intentionally distinct from DevelopmentExample, which is
+produced after the experiment and contains only the statistics
+required for threshold calibration.
+
+Author:
+TARG Reproduction
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass 
+
+@dataclass(frozen=True, slots=True)
+class DevelopmentRecord:
+    """
+    One labelled development-set question.
+
+    Attributes
+    ----------
+    example_id
+        Stable identifier for the example
+
+    question
+        Natural-languate question presented to the model.
+
+    reference-answer
+        Ground-truth answer used during evaluation.
+    """
+
+    example_id: str
+
+    question: str
+
+    reference_answer: str 
+
+    def __post_init__(self) -> None:
+
+        object.__setattr__(
+            self,
+            "example_id",
+            self._validate(
+                self.example_id,
+                "example_id",
+            ),
+        )
+
+        object.__setattr__(
+            self,
+            "question",
+            self._validate(
+                self.question,
+                "question",
+            ),
+        )
+
+        object.__setattr__(
+            self,
+            "reference_answer",
+            self._validate(
+                self.reference_answer,
+                "reference_answer",
+            ),
+        )
+
+    @staticmethod
+    def _validate(
+        value: str,
+        field_name: str,
+    ) -> str:
+        
+        if not isinstance(value, str):
+            raise TypeError(
+                f"{field_name} must be a string."
+            )
+        
+        value = value.strip()
+
+        if not value:
+            raise ValueError(
+                f"{field_name} must not be empty."
+            )
+        
+        return value 
+
+=======================
+targ/draft_generator.py
+=======================
+"""
+draft_generator.py
+
+Retrieval-free prefix generation for Training-free Adaptive Retrieval
+Gating (TARG).
+
+This module implements only the DecodePrefix stage of TARG. It does not
+calculate uncertainty, calibrate thresholds, perform retrieval, or generate
+the final answer.
+
+Paper:
+    Wang, Wei, and Ling,
+    "Retrieval as a Decision: Training-Free Adaptive Gating for Efficient RAG"
+    arXiv:2511.09803
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Mapping, Optional, Protocol, Sequence
+
+import torch
+from torch import Tensor
+
+
+# ---------------------------------------------------------------------
+# Interfaces
+# ---------------------------------------------------------------------
+
+
+class TokenizerProtocol(Protocol):
+    """
+    Minimal tokenizer interface required by DraftGenerator.
+
+    A Hugging Face tokenizer satisfies this interface.
+    """
+
+    eos_token_id: Optional[int]
+    pad_token_id: Optional[int]
+
+    def __call__(
+        self,
+        text: str,
+        *,
+        return_tensors: str,
+        add_special_tokens: bool = True,
+        truncation: bool = False,
+    ) -> Mapping[str, Tensor]:
+        ...
+
+    def decode(
+        self,
+        token_ids: Sequence[int] | Tensor,
+        *,
+        skip_special_tokens: bool = True,
+    ) -> str:
+        ...
+
+
+# ---------------------------------------------------------------------
+# Immutable outputs
+# ---------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class DraftStep:
+    """
+    Information recorded for one autoregressive prefix position.
+
+    Attributes
+    ----------
+    position:
+        Zero-based generated-token position within the retrieval-free draft.
+
+    token_id:
+        Token selected greedily at this position.
+
+    logits:
+        Complete next-token logit vector before token selection.
+        Shape: [vocabulary_size].
+
+    top1_logit:
+        Largest next-token logit.
+
+    top2_logit:
+        Second-largest next-token logit.
+
+    logit_margin:
+        Difference between the largest and second-largest logits:
+        g_t = l_(1) - l_(2).
+    """
+
+    position: int
+    token_id: int
+    logits: Tensor
+    top1_logit: float
+    top2_logit: float
+    logit_margin: float
+
+
+@dataclass(frozen=True)
+class DraftOutput:
+    """
+    Immutable result of retrieval-free prefix decoding.
+
+    Attributes
+    ----------
+    base_prompt:
+        The retrieval-free prompt B(q).
+
+    prompt_input_ids:
+        Tokenized base prompt. Shape: [1, prompt_length].
+
+    prompt_attention_mask:
+        Attention mask for the base prompt. Shape: [1, prompt_length].
+
+    generated_token_ids:
+        Token IDs generated after the base prompt. Shape: [generated_length].
+
+    generated_text:
+        Decoded retrieval-free draft prefix.
+
+    steps:
+        One DraftStep for every generated token.
+
+    requested_prefix_length:
+        Configured k.
+
+    actual_prefix_length:
+        Number of generated tokens. This may be less than k if EOS or
+        another configured stop token is produced.
+
+    stopped_on_eos:
+        Whether decoding terminated because the model emitted EOS.
+
+    stopped_on_custom_token:
+        Whether decoding terminated because a configured stop token was
+        produced.
+    """
+
+    base_prompt: str
+    prompt_input_ids: Tensor
+    prompt_attention_mask: Tensor
+    generated_token_ids: Tensor
+    generated_text: str
+    steps: tuple[DraftStep, ...]
+    requested_prefix_length: int
+    actual_prefix_length: int
+    stopped_on_eos: bool
+    stopped_on_custom_token: bool
+
+    @property
+    def logits(self) -> Tensor:
+        """
+        Stack per-step logits into shape [generated_length, vocabulary_size].
+        """
+        if not self.steps:
+            return torch.empty((0, 0), dtype=torch.float32)
+
+        return torch.stack(
+            [step.logits for step in self.steps],
+            dim=0,
+        )
+
+    @property
+    def logit_margins(self) -> Tensor:
+        """
+        Return g_1, ..., g_k as a one-dimensional tensor.
+        """
+        return torch.tensor(
+            [step.logit_margin for step in self.steps],
+            dtype=torch.float32,
+        )
+
+
+# ---------------------------------------------------------------------
+# Draft generator
+# ---------------------------------------------------------------------
+
+
+class DraftGenerator:
+    """
+    Generate the short retrieval-free prefix required by TARG.
+
+    The paper performs a single up-front gate using a short prefix generated
+    from B(q), without retrieved context. Main experiments use greedy
+    decoding, batch size 1, and k=20 by default.
+
+    This class intentionally does not:
+    - call a retriever;
+    - inject retrieved documents;
+    - compute entropy, margin uncertainty, or variance;
+    - decide whether retrieval is required;
+    - reuse the draft as the final answer.
+    """
+
+    def __init__(
+        self,
+        *,
+        model: Any,
+        tokenizer: TokenizerProtocol,
+        prefix_length: int = 20,
+        stop_token_ids: Optional[Sequence[int]] = None,
+        add_special_tokens: bool = True,
+        use_cache: bool = True,
+        clone_logits_to_cpu: bool = True,
+    ) -> None:
+        """
+        Parameters
+        ----------
+        model:
+            Autoregressive causal language model exposing:
+                outputs.logits
+            and optionally:
+                outputs.past_key_values
+
+        tokenizer:
+            Tokenizer associated with the generator model.
+
+        prefix_length:
+            Number of retrieval-free draft tokens k.
+            The paper uses k=20 by default and evaluates k in {10, 20, 30}.
+
+        stop_token_ids:
+            Optional additional token IDs that should terminate prefix
+            decoding. The model's EOS token is handled separately.
+
+        add_special_tokens:
+            Whether tokenizer-defined special tokens should be included.
+
+        use_cache:
+            Reuse past_key_values during autoregressive decoding.
+            This is an implementation optimization; it does not alter the
+            TARG decision rule.
+
+        clone_logits_to_cpu:
+            Store detached logits on CPU. This avoids retaining GPU memory
+            after draft generation. Set False only when the downstream scorer
+            must operate directly on-device.
+        """
+        if model is None:
+            raise ValueError("model must not be None")
+
+        if tokenizer is None:
+            raise ValueError("tokenizer must not be None")
+
+        if not isinstance(prefix_length, int):
+            raise TypeError("prefix_length must be an integer")
+
+        if prefix_length <= 0:
+            raise ValueError("prefix_length must be greater than zero")
+
+        normalized_stop_ids: set[int] = set()
+
+        for token_id in stop_token_ids or ():
+            if not isinstance(token_id, int):
+                raise TypeError("every stop token ID must be an integer")
+
+            if token_id < 0:
+                raise ValueError("stop token IDs must be non-negative")
+
+            normalized_stop_ids.add(token_id)
+
+        self._model = model
+        self._tokenizer = tokenizer
+        self._prefix_length = prefix_length
+        self._stop_token_ids = frozenset(normalized_stop_ids)
+        self._add_special_tokens = add_special_tokens
+        self._use_cache = use_cache
+        self._clone_logits_to_cpu = clone_logits_to_cpu
+
+    @property
+    def prefix_length(self) -> int:
+        return self._prefix_length
+
+    @property
+    def device(self) -> torch.device:
+        """
+        Return the device on which model parameters reside.
+        """
+        try:
+            return next(self._model.parameters()).device
+        except StopIteration as exc:
+            raise RuntimeError(
+                "Unable to determine model device because the model "
+                "has no parameters."
+            ) from exc
+
+    @torch.inference_mode()
+    def generate(
+        self,
+        base_prompt: str,
+    ) -> DraftOutput:
+        """
+        Decode a short retrieval-free prefix from B(q).
+
+        Processing
+        ----------
+        1. Tokenize the base prompt.
+        2. Run autoregressive greedy generation.
+        3. At every generated position:
+           - preserve the complete next-token logits;
+           - identify the top-1 and top-2 logits;
+           - record their margin;
+           - select argmax as the next token.
+        4. Stop after k tokens or a configured stopping token.
+        5. Return the draft and per-step logits.
+
+        Returns
+        -------
+        DraftOutput
+            Immutable draft-generation evidence for later uncertainty
+            scoring.
+        """
+        normalized_prompt = self._validate_prompt(base_prompt)
+        encoded = self._tokenize(normalized_prompt)
+
+        input_ids = encoded["input_ids"]
+        attention_mask = encoded["attention_mask"]
+
+        original_input_ids = input_ids.detach().clone().cpu()
+        original_attention_mask = attention_mask.detach().clone().cpu()
+
+        generated_ids: list[int] = []
+        steps: list[DraftStep] = []
+
+        stopped_on_eos = False
+        stopped_on_custom_token = False
+
+        model_was_training = bool(getattr(self._model, "training", False))
+        self._model.eval()
+
+        try:
+            current_input_ids = input_ids
+            current_attention_mask = attention_mask
+            past_key_values = None
+
+            for position in range(self._prefix_length):
+                outputs = self._forward(
+                    input_ids=current_input_ids,
+                    attention_mask=current_attention_mask,
+                    past_key_values=past_key_values,
+                )
+
+                next_token_logits = self._extract_next_token_logits(outputs)
+                step = self._build_step(
+                    logits=next_token_logits,
+                    position=position,
+                )
+
+                generated_ids.append(step.token_id)
+                steps.append(step)
+
+                if self._is_eos(step.token_id):
+                    stopped_on_eos = True
+                    break
+
+                if step.token_id in self._stop_token_ids:
+                    stopped_on_custom_token = True
+                    break
+
+                next_token_tensor = torch.tensor(
+                    [[step.token_id]],
+                    dtype=input_ids.dtype,
+                    device=self.device,
+                )
+
+                if self._use_cache:
+                    past_key_values = getattr(
+                        outputs,
+                        "past_key_values",
+                        None,
+                    )
+
+                if self._use_cache and past_key_values is not None:
+                    current_input_ids = next_token_tensor
+                else:
+                    current_input_ids = torch.cat(
+                        [current_input_ids, next_token_tensor],
+                        dim=-1,
+                    )
+
+                current_attention_mask = torch.cat(
+                    [
+                        current_attention_mask,
+                        torch.ones(
+                            (1, 1),
+                            dtype=current_attention_mask.dtype,
+                            device=current_attention_mask.device,
+                        ),
+                    ],
+                    dim=-1,
+                )
+
+        finally:
+            if model_was_training:
+                self._model.train()
+
+        generated_token_ids = torch.tensor(
+            generated_ids,
+            dtype=torch.long,
+        )
+
+        generated_text = self._tokenizer.decode(
+            generated_token_ids,
+            skip_special_tokens=True,
+        )
+
+        return DraftOutput(
+            base_prompt=normalized_prompt,
+            prompt_input_ids=original_input_ids,
+            prompt_attention_mask=original_attention_mask,
+            generated_token_ids=generated_token_ids,
+            generated_text=generated_text,
+            steps=tuple(steps),
+            requested_prefix_length=self._prefix_length,
+            actual_prefix_length=len(steps),
+            stopped_on_eos=stopped_on_eos,
+            stopped_on_custom_token=stopped_on_custom_token,
+        )
+
+    def _validate_prompt(
+        self,
+        base_prompt: str,
+    ) -> str:
+        if not isinstance(base_prompt, str):
+            raise TypeError("base_prompt must be a string")
+
+        normalized = base_prompt.strip()
+
+        if not normalized:
+            raise ValueError("base_prompt must not be empty")
+
+        return normalized
+
+    def _tokenize(
+        self,
+        base_prompt: str,
+    ) -> dict[str, Tensor]:
+        encoded = self._tokenizer(
+            base_prompt,
+            return_tensors="pt",
+            add_special_tokens=self._add_special_tokens,
+            truncation=False,
+        )
+
+        if "input_ids" not in encoded:
+            raise RuntimeError(
+                "Tokenizer output does not contain input_ids."
+            )
+
+        input_ids = encoded["input_ids"]
+
+        if not isinstance(input_ids, Tensor):
+            raise TypeError("tokenizer input_ids must be a tensor")
+
+        if input_ids.ndim != 2:
+            raise ValueError(
+                "input_ids must have shape [batch_size, sequence_length]"
+            )
+
+        if input_ids.shape[0] != 1:
+            raise ValueError(
+                "DraftGenerator requires batch size 1."
+            )
+
+        attention_mask = encoded.get("attention_mask")
+
+        if attention_mask is None:
+            attention_mask = torch.ones_like(input_ids)
+
+        if not isinstance(attention_mask, Tensor):
+            raise TypeError("attention_mask must be a tensor")
+
+        if attention_mask.shape != input_ids.shape:
+            raise ValueError(
+                "attention_mask must have the same shape as input_ids"
+            )
+
+        return {
+            "input_ids": input_ids.to(self.device),
+            "attention_mask": attention_mask.to(self.device),
+        }
+
+    def _forward(
+        self,
+        *,
+        input_ids: Tensor,
+        attention_mask: Tensor,
+        past_key_values: Any,
+    ) -> Any:
+        kwargs: dict[str, Any] = {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "use_cache": self._use_cache,
+            "return_dict": True,
+        }
+
+        if past_key_values is not None:
+            kwargs["past_key_values"] = past_key_values
+
+        outputs = self._model(**kwargs)
+
+        if outputs is None:
+            raise RuntimeError("Model returned no output.")
+
+        if not hasattr(outputs, "logits"):
+            raise RuntimeError(
+                "Model output does not expose logits."
+            )
+
+        return outputs
+
+    def _extract_next_token_logits(
+        self,
+        outputs: Any,
+    ) -> Tensor:
+        logits = outputs.logits
+
+        if not isinstance(logits, Tensor):
+            raise TypeError("model logits must be a torch.Tensor")
+
+        if logits.ndim != 3:
+            raise ValueError(
+                "model logits must have shape "
+                "[batch_size, sequence_length, vocabulary_size]"
+            )
+
+        if logits.shape[0] != 1:
+            raise ValueError(
+                "DraftGenerator requires model batch size 1."
+            )
+
+        if logits.shape[-1] < 2:
+            raise ValueError(
+                "vocabulary must contain at least two tokens "
+                "to compute a top-1/top-2 margin"
+            )
+
+        return logits[:, -1, :]
+
+    def _build_step(
+        self,
+        *,
+        logits: Tensor,
+        position: int,
+    ) -> DraftStep:
+        """
+        Build one greedy draft step directly from logits.
+
+        The selected token is argmax(logits). The top-1/top-2 values are
+        retained so the later MarginUncertaintyScorer can compute or verify
+        the logit gap.
+        """
+        top2 = torch.topk(
+            logits,
+            k=2,
+            dim=-1,
+            largest=True,
+            sorted=True,
+        )
+
+        top1_logit_tensor = top2.values[0, 0]
+        top2_logit_tensor = top2.values[0, 1]
+
+        token_id_tensor = torch.argmax(
+            logits,
+            dim=-1,
+        )
+
+        token_id = int(token_id_tensor.item())
+        top1_logit = float(top1_logit_tensor.item())
+        top2_logit = float(top2_logit_tensor.item())
+        logit_margin = top1_logit - top2_logit
+
+        stored_logits = logits[0].detach()
+
+        if self._clone_logits_to_cpu:
+            stored_logits = stored_logits.float().cpu().clone()
+        else:
+            stored_logits = stored_logits.clone()
+
+        return DraftStep(
+            position=position,
+            token_id=token_id,
+            logits=stored_logits,
+            top1_logit=top1_logit,
+            top2_logit=top2_logit,
+            logit_margin=logit_margin,
+        )
+
+    def _is_eos(
+        self,
+        token_id: int,
+    ) -> bool:
+        eos_token_id = self._tokenizer.eos_token_id
+
+        if eos_token_id is None:
+            return False
+
+        return token_id == eos_token_id
+
+============================
+targ/retrieval_comparison.py
+============================
+"""
+retrieval_comparison.py
+
+Immutable experiment models for Training-Free Adaptive Retrieval
+Gating (TARG).
+
+These models preserve the complete evidence from one retrieval 
+comparison experiment.
+
+A RetrievalComparison represents one development-set example after
+both retrieval-free and retrieval-augmented generation have been
+evaluated.
+
+Responsibilities
+----------------
+1. Preserve uncertainty evidence.
+2. Preserve retrieval evidence.
+3. Preserve answer-generation evidence.
+4. Preserve evaluation evidence.
+5. Provide convenient derived properties.
+
+The models NEVER 
+
+- generate answers
+- perform retrieval
+- evaluate answers
+- compute uncertainty
+- calibrate thresholds
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from answer_generator import AnswerOutput
+from answer_evaluator import EvaluationResult
+from retrieval import RetrievalResult
+
+# -----------------------------------------------------------------
+# Immutable experiment record
+# -----------------------------------------------------------------
+
+@dataclass(frozen=True)
+class RetrievalComparison:
+    """
+    Complete evidence for one retrieval experiment.
+    """
+
+    # -------------------------------------------------------------
+    # Dataset
+    # -------------------------------------------------------------
+
+    example_id: str
+
+    question: str
+
+    reference_answer: str
+
+    # -------------------------------------------------------------
+    # Retrieval decision evidence
+    # -------------------------------------------------------------
+
+    uncertainty_score: float
+
+    # -------------------------------------------------------------
+    # Retrieval evidence
+    # -------------------------------------------------------------
+    retrieval_result: RetrievalResult 
+
+    # -------------------------------------------------------------
+    # Generation evidence
+    # -------------------------------------------------------------
+
+    no_retrieval_output: AnswerOutput
+
+    retrieval_output: AnswerOutput
+
+    # -------------------------------------------------------------
+    # Evaluation evidence
+    # -------------------------------------------------------------
+
+    no_retrieval_evaluation: EvaluationResult
+
+    retrieval_evaluation: EvaluationResult
+
+    # -------------------------------------------------------------
+    # Derived properties
+    # -------------------------------------------------------------
+
+    @property
+    def no_retrieval_score(self) -> float:
+        """
+        Evaluation score without retrieval.
+        """
+
+        return self.no_retrieval_evaluation.overall_score
+    
+    @property
+    def improvement(self) -> float:
+        """
+        Absolute improvement obtained by retrieval.
+        """
+
+        return (
+            self.retrieval_score
+            - self.no_retrieval_score
+        )
+    
+    @property
+    def retrieval_helped(self) -> bool:
+        """
+        Whether retrieval improved the answer.
+        """
+
+        return self.improvement > 0.0
+    
+    @property
+    def retrieval_hurt(self) -> bool:
+        """
+        Whether retrieval reduced answer quality.
+        """
+
+        return self.improvement < 0.0
+    
+    @property
+    def calibration_example(self):
+        """
+        Convert directly into the format expected by
+        ThresholdCalibrator.
+
+        Imported lazily to avoid circular imports
+        """
+
+        from threshold_calibrator import DevelopmentExample
+
+        return DevelopmentExample(
+            example_id=self.example_id,
+            uncertainty_score=self.uncertainty_score,
+            no_retrieval_score=self.no_retrieval_score,
+            retrieval_score=self.retrieval_score,
+        )
+    
+    @property
+    def preferred_answer(self) -> AnswerOutput:
+        """
+        Return the higher-scoring answer output.
+
+        If both answers receive identical scores,
+        prefer the retrieval-free answer because it
+        incurs no retrieval cost.
+        """
+
+        if self.retrieval_score > self.no_retrieval_score:
+            return self.retrieval_output
+        
+        return self.no_retrieval_output
+    
+    @property
+    def retrieved_documents(self):
+        """
+        Documents returned by the retriever.
+        """
+
+        return self.retrieval_result.documents
+    
+    @property
+    def retrieved_document_count(self) -> int:
+        """
+        Number of retrieved documents.
+        """
+
+        return len(self.retrieval_result.documents)
+    
+    @property
+    def retrieval_performed(self) -> bool:
+        """
+        Whether any documents were retrieved.
+        """
+
+        return self.retrieval_result.retrieved
+
+===========================
+targ/stage2_5_experiment.py
+===========================
+"""
+stage2_5_experiment.py
+
+Orchestrate the Stage 2.5 retrieval-comparison experiment.
+
+The runner evaluates every development example twice:
+
+1. Generate an answer without retrieval.
+2. Generate an answer using retrieved evidence.
+3. Evaluate both answer against the reference answer.
+4. Preserve the complete evidence chain in RetrievalComparison.
+5. Convert each comparison into a DevelopmentExample for threshold calibration.
+6. Produce deterministic aggregate experiment statistics.
+
+The runner performs no generation, retrieval, uncertainty estimation,
+evaluation, or threshold-calibration algorithms itself.
+
+Author:
+TARG Reproduction
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from math import isfinite
+from typing import Any, Iterable, Protocol, Sequence, runtime_checkable
+
+from answer_evaluator import AnswerEvaluator, EvaluationResult
+from answer_generator import AnswerGenerator, AnswerOutput
+from retrieval_comparison import RetrievalComparison 
+from development_record import DevelopmentRecord
+
+# ---------------------------------------------------------------------
+# Protocols
+# ---------------------------------------------------------------------
+
+@runtime_checkable
+class DevelopmentRecordProtocol(Protocol):
+    """
+    Minimum inference required from a development-dataset record.
+    """
+
+    @property
+    def example_id(self) -> str:
+        ...
+
+    @property
+    def question(self) -> str:
+        ...
+
+    @property
+    def reference_answer(self) -> str:
+        ...
+
+@runtime_checkable
+class DraftGeneratorProtocol(Protocol):
+    """
+    Interface required from the draft generator.
+    """
+
+    def generate(
+        self,
+        query: str,
+    ) -> Any:
+        ...
+
+
+@runtime_checkable
+class UncertaintyScorerProtocol(Protocol):
+    """
+    Interface required from the uncertainty scorer.
+
+    The concrete scorer may either return a numeric score directly or
+    return an immutable result object exposing one of the supported
+    score attributes handled by `_extract_uncertainty_score`.
+    """
+
+    def score(
+        self,
+        draft_output: Any,
+    ) -> Any:
+        ...
+
+@runtime_checkable
+class RetrieverProtocol(Protocol):
+    """
+    Interface required from the retriever.
+    """
+
+    def retrieve(
+        self,
+        query: str,
+    ) -> Any:
+        ...
+
+
+# ------------------------------------------------------------
+# Experiment result
+# ------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ExperimentResult:
+    """
+    Immutable result of a complete Stage 2.5 experiment.
+
+    Attributes
+    ----------
+    comparisons
+        Per-example retrieval comparisons containing uncertainty,
+        retrieval, generation, and evaluation evidence.
+
+    development_examples
+        Calibration-ready examples derived from the comparisons.
+
+    mean_no_retrieval_score
+        Mean answer score without retrieval.
+
+    mean_retrieval_score
+        Mean answer score with retrieval.
+
+    mean_improvement
+        Mean retrieval score minus mean no-retrieval score.
+
+    retrieval_helped_count
+        Number of examples for which retrieval improved the score.
+
+    retrieval_hurt_count
+        Number of examples for which retrieval reduced the score.
+
+    retrieval_no_effect_count
+        Number of examples for which retrieval did not change the score.
+    """
+
+    comparisons: tuple[RetrievalComparison, ...]
+
+    development_example: tuple[Any, ...]
+
+    mean_no_retrieval_score: float
+
+    mean_retrieval_score: float
+
+    mean_improvement: float
+
+    retrieval_hurt_count: int
+
+    retrieval_no_effect_count: int
+
+    # -------------------------------------------------------
+    # Derived properties
+    # -------------------------------------------------------
+
+    @property
+    def example_count(self) -> int:
+        """
+        Number of evaluated development examples.
+        """
+
+        return len(self.comparisons)
+    
+    @property
+    def retrieval_help_rate(self) -> float:
+        """
+        Proportion of examples for which retrieval improved performance.
+        """
+
+        if self.example_count == 0:
+            return 0.0
+        
+        return self.retrieval_helped_counnt / self.example_count
+    
+    @property
+    def retrieval_no_effect_rate(self) -> float:
+        """
+        Proportion of examples for which retrieval had no score effect.
+        """
+
+        if self.example_count == 0:
+            return 0.0
+        
+        return self.retrieval_no_effect_count / self.example_count
+    
+
+    @property
+    def retrieval_improvement(self) -> float:
+        """
+        Alias for the aggregate mean improvement.
+        """
+
+        return self.mean_improvement 
+    
+    # --------------------------------------------------------------------------
+    # Validation
+    # --------------------------------------------------------------------------
+
+    def __post_init__(self) -> None:
+        comparison_count = len(self.comparisons)
+        calibration_count = len(self.development_examples)
+
+        if comparison_count == 0:
+            raise ValueError(
+                "ExperimentResult must contain at least one comparison."
+            )
+        
+        if calibration_count != comparison_count:
+            raise ValueError(
+                "The number of development_examples must equal the "
+                "number of camparisons."
+            )
+        
+        category_count = (
+            self.retrieval_helped_count
+            + self.retrieval_hurt_count
+            + self.retrieval_no_effect_count
+        )
+
+        if category_count != comparison_count:
+            raise ValueError(
+                "Retrieval outcome counts must sum to the number of "
+                "comparisons."
+            )
+        
+        for field_name, value in (
+            (
+                "mean_no_retrieval_score",
+                self.mean_no_retrieval_score,
+            ),
+            (
+                "mean_retrieval_score",
+                self.mean_retrieval_score,
+            ),
+            (
+                "mean_improvement",
+                self.mean_improvement,
+            )
+        ):
+            if not isinstance(value, (int, float)):
+                raise TypeError(
+                    f"{field_name} must be numeric."
+                )
+            
+            if not isfinite(float(value)):
+                raise ValueError(
+                    f"{field_name} must be finite."
+                )
+            
+        for field_name, value in (
+            (
+                "retrieval_helped_count",
+                self.retrieval_helped_count,
+            ),
+            (
+                "retrieval_no_effect_count",
+                self.retrieval_no_effect_count,
+            ),
+        ):
+            if not isinstance(value, int):
+                raise TypeError(
+                    f"{field_name} must be an integer."
+                )
+            
+            if value < 0:
+                raise ValueError(
+                    f"{field_name} must not be negative."
+                )
+            
+class Stage2_5ExperimentRunner:
+    """
+    Orchestrate Stage 2.5 retrieval-comparison experiments.
+
+    Responsibilities
+    ----------------
+    1. Validate development-dataset records.
+    2. Generate a draft for uncertainty estimation.
+    3. Estimate uncertainty from the draft.
+    4. Generate an answer without retrieval.
+    5. Evaluate the no-retrieval answer.
+    6. Retrieve relevant evidence.
+    7. Generate an answer using the retrieved evidence.
+    8. Evaluate the retrieval-augmented answer.
+    9. Preserve all evidence in RetrievalComparison.
+    10. Produce calibration examples and experiment summaries.
+
+    The runner never:
+    - implements generation;
+    - implements retrieval;
+    - computes uncertainty itself;
+    - implements answer metrics;
+    - calibrates a threshold;
+    - applies a retrieval gate.
+    """
+
+    def __init__(
+        self,
+        *,
+        draft_generator: DraftGeneratorProtocol,
+        uncertainty_scorer: UncertaintyScorerProtocol,
+        answer_generator: AnswerGenerator,
+        retriever: RetrieverProtocol,
+        answer_evaluator: AnswerEvaluator,
+    ) -> None:
+        """
+        Initialize the Stage 2.5 experiment runner.
+        """
+
+        self._validate_component(
+            name="draft_generator",
+            component=draft_generator,
+            required_method="generate",
+        )
+
+        self._validate_component(
+            name="uncertainty_scorer",
+            component=uncertainty_scorer,
+            required_method="score",
+        )
+
+        self._validate_component(
+            name="answer_generator",
+            component=answer_generator,
+            required_method="generate",
+        )
+
+        self._validate_component(
+            name="retriever",
+            component=retriever,
+            required_method="retrieve",
+        )
+
+        self._validate_component(
+            name="answer_evaluator",
+            component=answer_evaluator,
+            required_method="evaluate",
+        )
+
+        self.draft_generator = draft_generator
+        self.uncertainty_scorer = uncertainty_scorer
+        self.answer_generator = answer_generator
+        self.retriever = retriever
+        self.answer_evaluator = answer_evaluator
+
+
+    # ----------------------------------------------------------
+    # Public API
+    # ----------------------------------------------------------
+
+    def run(
+        self,
+        *,
+        development_dataset: Iterable[DevelopmentRecord],
+    ) -> ExperimentResult:
+        """
+        Run the complete stage 2.5 experiment.
+
+        Parameters
+        ----------
+        developement_dataset
+            Iterable of development records exposing:
+
+            - example_id
+            - question
+            - reference_answer
+
+        Returns
+        -------
+        ExperimentResult
+            Immutable aggregate experiment result.
+        """
+
+        records = self._materialize_dataset(
+            development_dataset
+        )
+
+        comparisons = tuple(
+            self._run_example(record)
+            for record in records
+        )
+
+        development_examples = tuple(
+            comparison.calibration_example
+            for comparison in comparisons
+        )
+
+        return self._summarise_results(
+            comparisons=comparisons,
+            development_examples=development_examples,
+        )
+    
+    # ------------------------------------------------------------------
+    # Per-example orchestration
+    # ------------------------------------------------------------------
+
+    def _run_example(
+        self,
+        record: DevelopmentRecord,
+    ) -> RetrievalComparison:
+        """
+        Execute the full experiment flow for one development example.
+        """
+
+        base_prompt = (
+            "Answer the following question concisely.\n\n"
+            f"Question:\n{record.question}\n\n"
+            "Answer:"
+        )
+        example_id = self._validate_example_id(
+            record.example_id
+        )
+
+        question = self._validate_text(
+            name="question",
+            value=record.question,
+        )
+
+        reference_answer = self._validate_text(
+            name="reference_answer",
+            value=record.reference_answer,
+        )
+
+        draft_output = self.draft_generator.generate(
+            base_prompt=base_prompt,
+        )
+
+        uncertainty_result = self.uncertainty_scorer.score(
+            draft=draft_output
+        )
+
+        uncertainty_score = self._extract_uncertainty_score(
+            uncertainty_result
+        )
+
+        no_retrieval_output = (
+            self._generate_without_retrieval(
+                question=question,
+            )
+        )
+
+        no_retrieval_evaluation = self.evaluate(
+            reference_answer=reference_answer,
+            answer_output=no_retrieval_output
+        )
+
+        retrieval_result = self.retriever.retriever(
+            query=question
+        )
+
+        if retrieval_result is None:
+            raise RuntimeError(
+                "Retriever returned None for example "
+                f"{example_id!r}."
+            )
+        
+        retrieval_output = self._generate_with_retrieval(
+            question=question,
+            retrieval_result=retrieval_result,
+        )
+
+        retrieval_evaluation = self._evaluate(
+            reference_answer=reference_answer,
+            answer_output=retrieval_output,
+        )
+
+        comparison = RetrievalComparison(
+            example_id=example_id,
+            question=question,
+            reference_answer=reference_answer,
+            uncertainty_score=uncertainty_score,
+            retrieval_result=retrieval_result,
+            no_retrieval_output=no_retrieval_output,
+            retrieval_output=retrieval_output,
+            no_retrieval_evaluation=no_retrieval_evaluation,
+            retrieval_evaluation=retrieval_evaluation,
+        )
+
+        self._validate_comparison(
+            comparison=comparison,
+        )
+
+        return comparison
+    
+    def _generate_without_retrieval(
+        self,
+        *,
+        question: str,
+    ) -> AnswerOutput:
+        """
+        Generate an answer without retrieved context.
+        """
+
+        output = self.answer_generator.generate(
+            query=question,
+        )
+
+        self._validate_answer_output(
+            output=output,
+            expected_query=question,
+            expected_retrieval=False,
+        )
+
+        return output 
+    
+    def _generate_with_retrieval(
+        self,
+        *,
+        question: str,
+        retrieval_result: Any,
+    ) -> AnswerOutput:
+        """
+        Generate an answer using retrieved context.
+        """
+
+        output = self.answer_generator.generate(
+            query=question,
+            retrieval=retrieval_result,
+        )
+
+        self._validate_answer_output(
+            output=output,
+            expected_query=question,
+            expected_retrieval=True,
+        )
+
+        return output
+    
+    def _evaluate(
+        self,
+        *,
+        reference_answer: str,
+        answer_output: AnswerOutput,
+    ) -> EvaluationResult:
+        """
+        Evaluate one generated answer against its reference answer.
+        """
+
+        evaluation = self.answer_evaluator.evaluate(
+            reference=reference_answer,
+            candidate=answer_output.generated_text,
+        )
+
+        if not isinstance(evaluation, EvaluationResult):
+            raise TypeError(
+                "answer_evaluator.evaluate() must return "
+                "EvaluationResult."
+            )
+        
+        if (
+            evaluation.reference_answer
+            != reference_answer
+        ):
+            raise ValueError(
+                "EvaluationResult did not preserve the supplied "
+                "reference answer."
+            )
+        
+        if (
+            evaluation.candidate_answer
+            != answer_output.generated_text
+        ): 
+            raise ValueError(
+                "EvaluationResult did not preserve the generated "
+                "candidate answer"
+            )
+        
+        return evaluation 
+    
+    # ---------------------------------------------------------------------------
+    # Experiment summarisation
+    # ---------------------------------------------------------------------------
+
+    def _summarise_results(
+        self,
+        *,
+        comparisons: Sequence[RetrievalComparison],
+        development_examples: Sequence[Any],
+    ) -> ExperimentResult:
+        """
+        Build deterministic aggregate experiment statistics.
+        """
+
+        if not comparisons:
+            raise ValueError(
+                "Cannot summarise an empty comparison sequence."
+            )
+        
+        no_retrieval_scores = tuple(
+            float(comparison.no_retrieval_score)
+            for comparison in comparisons
+        )
+
+        retrieval_scores = tuple(
+            float(comparison.retrieval_score)
+            for comparison in comparisons
+        )
+
+        improvements = tuple(
+            float(comparison.improvement)
+            for comparison in comparisons
+        )
+
+        helped_count = sum(
+            1
+            for comparison in comparisons
+            if comparison.retrieval_helped
+        )
+
+        hurt_count = sum(
+            1
+            for comparison in comparisons
+            if comparison.retrieval_hurt
+        )
+
+        no_effect_count = sum(
+            1
+            for comparison in comparisons
+            if comparison.retrieval_no_effect
+        )
+
+        comparison_count = len(comparisons)
+
+        return ExperimentResult(
+            comparisons=tuple(comparisons),
+            development_example=tuple(
+                development_examples
+            ),
+            mean_no_retrieval_score=(
+                sum(no_retrieval_scores)
+                / comparison_count
+            ),
+            mean_retrieval_score = (
+                sum(retrieval_scores)
+                / comparison_count
+            ),
+            mean_improvement=(
+                sum(improvements)
+                / comparison_count
+            ),
+            retrieval_helped_count=helped_count,
+            retrieval_hurt_count=hurt_count,
+            retrieval_no_effect_count=no_effect_count,
+        )
+    
+    # -------------------------------------------------------------
+    # Uncertainty extraction
+    # -------------------------------------------------------------
+
+    @staticmethod
+    def _extract_uncertainty_score(
+        uncertainty_result: Any,
+    ) -> float:
+        """
+        Extract a numeric uncertainty score from a scorer result.
+
+        Supported scorer outputs
+        ------------------------
+        - float
+        - int
+        - object exposing `uncertainty_score`
+        - object exposing `score`
+        - object exposing `margin_uncertainty`
+        - object exposing `uncertainty`
+
+        This adapter keeps orchestration independent of the precise
+        immutable evidence-object name used by the uncertainty scorer.
+        """
+
+        if isinstance(uncertainty_result, bool):
+            raise TypeError(
+                "Uncertainty score must not be boolean."
+            )
+        
+        if isinstance(uncertainty_result, (int, float)):
+            score = float(uncertainty_result)
+
+        else:
+            score = None
+
+            for attribute_name in (
+                "uncertainty_score",
+                "score",
+                "margin_uncertainty",
+                "uncertainty",
+            ):
+                if hasattr(
+                    uncertainty_result,
+                    attribute_name,
+                ):
+                    candidate = getattr(
+                        uncertainty_result,
+                        attribute_name,
+                    )
+
+                    if isinstance(candidate, bool):
+                        continue
+
+                    if isinstance(candidate, (int, float)):
+                        score = float(candidate)
+                        break
+
+                if score is None:
+                    raise TypeError(
+                        "Unable to extract an uncertainty score. "
+                        "The scorer must return a numeric value or an "
+                        "object exposing one of: uncertainty_score, "
+                        "score, margin_uncertainty, uncertainty."
+                    )
+                
+                if score is None:
+                    raise TypeError(
+                        "Unable to extract an uncertainty score. "
+                        "The scorer must return a numeric value or an "
+                        "object exposing one of: uncertainty_score, "
+                        "score, margin_uncertainty, uncertainty."
+                    )
+                
+        if not isfinite(score):
+            raise ValueError(
+                "Uncertainty score must be finite."
+            )
+        
+        return score 
+    
+    # ---------------------------------------------------------------------
+    # Validation
+    # ---------------------------------------------------------------------
+
+    @staticmethod
+    def _materialize_dataset(
+        development_dataset: Iterable[
+            DevelopmentRecord
+        ],
+    ) -> tuple[DevelopmentRecord, ...]:
+        """
+        Materialize and validate the development dataset.
+        """
+
+        if development_dataset is None:
+            raise TypeError(
+                "development_dataset must not be None."
+            )
+        
+        if isinstance(
+            development_dataset,
+            (str, bytes),
+        ):
+            raise TypeError(
+                "development_dataset must be an iterable of "
+                "development records, not a string."
+            )
+        
+        try:
+            records = tuple(development_dataset)
+        
+        except TypeError as error:
+            raise TypeError(
+                "development_dataset must contain at least one "
+                "record."
+            )
+        
+        seen_example_ids: str[str] = set()
+
+        for index, record in enumerate(records):
+            if record is None:
+                raise ValueError(
+                    "development_dataset contains None at "
+                    f"index {index}."
+                )
+            
+            for attribute_name in (
+                "example_id",
+                "question",
+                "reference_answer",
+            ):
+                if not hasattr(record, attribute_name):
+                    raise TypeError(
+                        "Develpment record at index "
+                        f"{index} does not expose "
+                        f"{attribute_name!r}."
+                    )
+                
+            example_id = (
+                Stage2_5ExperimentRunner
+                ._validate_example_id(
+                    record.example_id
+                )
+            )
+
+            if example_id in seen_example_ids:
+                raise ValueError(
+                    "Duplicate example_id detected: "
+                    f"{example_id!r}."
+                )
+            
+            seen_example_ids.add(example_id)
+
+            Stage2_5ExperimentRunner._validate_text(
+                name="question",
+                value=record.question,
+            )
+
+            Stage2_5ExperimentRunner._validate_text(
+                name="reference_answer",
+                value=record.reference_answer,
+            )
+
+        return records 
+    
+    @staticmethod
+    def _validate_component(
+        *,
+        name: str,
+        component: Any,
+        required_method: str,
+    ) -> None:
+        """
+        Validate one injected experiment component.
+        """
+
+        if component is None:
+            raise TypeError(
+                f"{name} must not be None."
+            )
+        
+        method = getattr(
+            component,
+            required_method,
+            None,
+        )
+
+        if method is None or not callable(method):
+            raise TypeError(
+                f"{name} must expose a callable "
+                f"{required_method}() method."
+            )
+        
+    @staticmethod
+    def _validate_example_id(
+        value: Any,
+    ) -> str:
+        """
+        Validate and normalize a development-example identifier.
+        """
+
+        if not isinstance(value, str):
+            raise TypeError(
+                "example_id must be a string."
+            )
+        
+        normalized = value.strip()
+
+        if not normalized:
+            raise ValueError(
+                "example_id must not be empty."
+            )
+        
+        return normalized 
+    
+    @staticmethod
+    def _validate_text(
+        *,
+        name: str,
+        value: Any,
+    ) -> str:
+        """
+        Validate and normalize a required text field.
+        """
+
+        if not isinstance(value, str):
+            raise TypeError(
+                f"{name} must be a string."
+            )
+        
+        normalized = value.strip()
+
+        if not normalized:
+            raise ValueError(
+                f"{name} must not be empty."
+            )
+        
+        return normalized
+    
+    @staticmethod
+    def _validate_answer_output(
+        *,
+        output: Any,
+        expected_query: str,
+        expected_retrieval: bool,
+    ) -> None:
+        """
+        Validate evidence returned by AnswerGenerator.
+        """
+
+        if not isinstance(output, AnswerOutput):
+            raise TypeError(
+                "answer_generator.generate() must return "
+                "AnswerOutput."
+            )
+        
+        if output.query != expected_query:
+            raise ValueError(
+                "AnswerOutput did not preserve the expected query."
+            )
+        
+        if not isinstance(
+            output.generated_text,
+            str,
+        ):
+            raise TypeError(
+                "AnswerOutput.generated_text must be a string."
+            )
+        
+        if not output.generated_text_strip():
+            raise ValueError(
+                "AnswerOutput.generated_text must not be empty."
+            )
+        
+        if (
+            output.used_retrieval
+            is not expected_retrieval
+        ): 
+            raise ValueError(
+                "AnswerOutput.used_retrieval is inconsistent "
+                "with the requested generation mode."
+            )
+        
+        if expected_retrieval:
+            if output.retrieved_document_count < 0:
+                raise ValueError(
+                    "retrieved_document_count must not be negative."
+                )
+            
+        elif output.retrieved_document_count != 0:
+            raise ValueError(
+                "No-retrieval generation must report zero "
+                "retrieved documents."
+            )
+        
+    @staticmethod
+    def _validate_comparison(
+        *,
+        comparison: RetrievalComparison,
+    ) -> None:
+        """
+        Validate cross-object evidence consistency.
+        """
+
+        if(
+            comparison.no_retrieval_output.query
+            != comparison.question
+        ):
+            raise ValueError(
+                "No-retrieval output query is inconsistent with "
+                "the comparison question."
+            )
+        
+        if (
+            comparison.retrieval_output.query
+            != comparison.question 
+        ):
+            raise ValueError(
+                "Retrieval output query is inconsistent with "
+                "the comparison question."
+            )
+        
+        if (
+            comparison.no_retrieval_evaluation
+            .reference_answer
+            != comparison.reference_answer
+        ):
+            raise ValueError(
+                "No-retrieval evaluation reference is "
+                "inconsistent with RetrievalComparison."
+            )
+        
+        if (
+            comparison.retrieval_evaluation
+            .reference_answer
+            != comparison.reference_answer
+        ):
+            raise ValueError(
+                "Retrieval evaluation reference is inconsistent "
+                "with RetrievalComparison."
+            )
+        
+        if (
+            comparison.no_retrieval_evaluation
+            .candidate_answer
+            != comparison.no_retrieval_output.generated_text
+        ):
+            raise ValueError(
+                "No-retrieval evaluation candidate does not match "
+                "the generated answer."
+            )
+        
+        if (
+            comparison.retrieval_evaluation
+            .candidate_answer
+            != comparison.retrieval_output.generated_text
+        ):
+            raise ValueError(
+                "Retrieval evaluation candidate does not match "
+                "the generated answer."
+            )
+        
+        outcome_count = sum(
+            (
+                bool(comparison.retrieval_helped),
+                bool(comparison.retrieval_hurt),
+                bool(comparison.retrieval_no_effect),
+            )
+        )
+
+        if outcome_count != 1:
+            raise ValueError(
+                "Exactly one retrieval outcome must be true: "
+                "helped, hurt, or no effect."
+            )
+        
+        

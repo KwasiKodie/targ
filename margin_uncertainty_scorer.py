@@ -450,7 +450,7 @@ class MarginUncertaintyScorer:
         Returns
         -------
         torch.Tensor
-            Values in the interval (0, 1], subject to finite-precision
+            Values in the interval (0, 1), subject to finite-precision
             underflow for extremely large margins.
         """
 

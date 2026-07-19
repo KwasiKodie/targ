@@ -7,9 +7,10 @@ The runner evaluates every development example twice:
 
 1. Generate an answer without retrieval.
 2. Generate an answer using retrieved evidence.
-3. Evaluate both answer against the reference answer.
+3. Evaluate both answers against the reference answer.
 4. Preserve the complete evidence chain in RetrievalComparison.
-5. Convert each comparison into a DevelopmentExample for threshold calibration.
+5. Convert each comparison into a DevelopmentExample for threshold
+   calibration.
 6. Produce deterministic aggregate experiment statistics.
 
 The runner performs no generation, retrieval, uncertainty estimation,
@@ -27,17 +28,18 @@ from typing import Any, Iterable, Protocol, Sequence, runtime_checkable
 
 from answer_evaluator import AnswerEvaluator, EvaluationResult
 from answer_generator import AnswerGenerator, AnswerOutput
-from retrieval_comparison import RetrievalComparison 
-from development_record import DevelopmentRecord
+from retrieval_comparison import RetrievalComparison
+
 
 # ---------------------------------------------------------------------
 # Protocols
 # ---------------------------------------------------------------------
 
+
 @runtime_checkable
 class DevelopmentRecordProtocol(Protocol):
     """
-    Minimum inference required from a development-dataset record.
+    Minimum interface required from a development-dataset record.
     """
 
     @property
@@ -51,6 +53,7 @@ class DevelopmentRecordProtocol(Protocol):
     @property
     def reference_answer(self) -> str:
         ...
+
 
 @runtime_checkable
 class DraftGeneratorProtocol(Protocol):
@@ -81,6 +84,7 @@ class UncertaintyScorerProtocol(Protocol):
     ) -> Any:
         ...
 
+
 @runtime_checkable
 class RetrieverProtocol(Protocol):
     """
@@ -94,9 +98,9 @@ class RetrieverProtocol(Protocol):
         ...
 
 
-# ------------------------------------------------------------
+# ---------------------------------------------------------------------
 # Experiment result
-# ------------------------------------------------------------
+# ---------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -134,7 +138,7 @@ class ExperimentResult:
 
     comparisons: tuple[RetrievalComparison, ...]
 
-    development_example: tuple[Any, ...]
+    development_examples: tuple[Any, ...]
 
     mean_no_retrieval_score: float
 
@@ -142,13 +146,15 @@ class ExperimentResult:
 
     mean_improvement: float
 
+    retrieval_helped_count: int
+
     retrieval_hurt_count: int
 
     retrieval_no_effect_count: int
 
-    # -------------------------------------------------------
+    # -----------------------------------------------------------------
     # Derived properties
-    # -------------------------------------------------------
+    # -----------------------------------------------------------------
 
     @property
     def example_count(self) -> int:
@@ -157,7 +163,7 @@ class ExperimentResult:
         """
 
         return len(self.comparisons)
-    
+
     @property
     def retrieval_help_rate(self) -> float:
         """
@@ -166,9 +172,20 @@ class ExperimentResult:
 
         if self.example_count == 0:
             return 0.0
-        
+
         return self.retrieval_helped_count / self.example_count
-    
+
+    @property
+    def retrieval_hurt_rate(self) -> float:
+        """
+        Proportion of examples for which retrieval reduced performance.
+        """
+
+        if self.example_count == 0:
+            return 0.0
+
+        return self.retrieval_hurt_count / self.example_count
+
     @property
     def retrieval_no_effect_rate(self) -> float:
         """
@@ -177,9 +194,8 @@ class ExperimentResult:
 
         if self.example_count == 0:
             return 0.0
-        
+
         return self.retrieval_no_effect_count / self.example_count
-    
 
     @property
     def retrieval_improvement(self) -> float:
@@ -187,27 +203,27 @@ class ExperimentResult:
         Alias for the aggregate mean improvement.
         """
 
-        return self.mean_improvement 
-    
-    # --------------------------------------------------------------------------
+        return self.mean_improvement
+
+    # -----------------------------------------------------------------
     # Validation
-    # --------------------------------------------------------------------------
+    # -----------------------------------------------------------------
 
     def __post_init__(self) -> None:
         comparison_count = len(self.comparisons)
-        calibration_count = len(self.development_example)
+        calibration_count = len(self.development_examples)
 
         if comparison_count == 0:
             raise ValueError(
                 "ExperimentResult must contain at least one comparison."
             )
-        
+
         if calibration_count != comparison_count:
             raise ValueError(
                 "The number of development_examples must equal the "
-                "number of camparisons."
+                "number of comparisons."
             )
-        
+
         category_count = (
             self.retrieval_helped_count
             + self.retrieval_hurt_count
@@ -219,7 +235,7 @@ class ExperimentResult:
                 "Retrieval outcome counts must sum to the number of "
                 "comparisons."
             )
-        
+
         for field_name, value in (
             (
                 "mean_no_retrieval_score",
@@ -232,22 +248,26 @@ class ExperimentResult:
             (
                 "mean_improvement",
                 self.mean_improvement,
-            )
+            ),
         ):
             if not isinstance(value, (int, float)):
                 raise TypeError(
                     f"{field_name} must be numeric."
                 )
-            
+
             if not isfinite(float(value)):
                 raise ValueError(
                     f"{field_name} must be finite."
                 )
-            
+
         for field_name, value in (
             (
                 "retrieval_helped_count",
                 self.retrieval_helped_count,
+            ),
+            (
+                "retrieval_hurt_count",
+                self.retrieval_hurt_count,
             ),
             (
                 "retrieval_no_effect_count",
@@ -258,12 +278,18 @@ class ExperimentResult:
                 raise TypeError(
                     f"{field_name} must be an integer."
                 )
-            
+
             if value < 0:
                 raise ValueError(
                     f"{field_name} must not be negative."
                 )
-            
+
+
+# ---------------------------------------------------------------------
+# Stage 2.5 experiment runner
+# ---------------------------------------------------------------------
+
+
 class Stage2_5ExperimentRunner:
     """
     Orchestrate Stage 2.5 retrieval-comparison experiments.
@@ -339,22 +365,21 @@ class Stage2_5ExperimentRunner:
         self.retriever = retriever
         self.answer_evaluator = answer_evaluator
 
-
-    # ----------------------------------------------------------
+    # -----------------------------------------------------------------
     # Public API
-    # ----------------------------------------------------------
+    # -----------------------------------------------------------------
 
     def run(
         self,
         *,
-        development_dataset: Iterable[DevelopmentRecord],
+        development_dataset: Iterable[DevelopmentRecordProtocol],
     ) -> ExperimentResult:
         """
-        Run the complete stage 2.5 experiment.
+        Run the complete Stage 2.5 experiment.
 
         Parameters
         ----------
-        developement_dataset
+        development_dataset
             Iterable of development records exposing:
 
             - example_id
@@ -385,24 +410,19 @@ class Stage2_5ExperimentRunner:
             comparisons=comparisons,
             development_examples=development_examples,
         )
-    
-    # ------------------------------------------------------------------
+
+    # -----------------------------------------------------------------
     # Per-example orchestration
-    # ------------------------------------------------------------------
+    # -----------------------------------------------------------------
 
     def _run_example(
         self,
-        record: DevelopmentRecord,
+        record: DevelopmentRecordProtocol,
     ) -> RetrievalComparison:
         """
         Execute the full experiment flow for one development example.
         """
 
-        base_prompt = (
-            "Answer the following question concisely.\n\n"
-            f"Question:\n{record.question}\n\n"
-            "Answer:"
-        )
         example_id = self._validate_example_id(
             record.example_id
         )
@@ -418,11 +438,11 @@ class Stage2_5ExperimentRunner:
         )
 
         draft_output = self.draft_generator.generate(
-            base_prompt=base_prompt,
+            query=question,
         )
 
         uncertainty_result = self.uncertainty_scorer.score(
-            draft=draft_output
+            draft_output
         )
 
         uncertainty_score = self._extract_uncertainty_score(
@@ -437,11 +457,11 @@ class Stage2_5ExperimentRunner:
 
         no_retrieval_evaluation = self._evaluate(
             reference_answer=reference_answer,
-            answer_output=no_retrieval_output
+            answer_output=no_retrieval_output,
         )
 
         retrieval_result = self.retriever.retrieve(
-            query=question
+            query=question,
         )
 
         if retrieval_result is None:
@@ -449,7 +469,7 @@ class Stage2_5ExperimentRunner:
                 "Retriever returned None for example "
                 f"{example_id!r}."
             )
-        
+
         retrieval_output = self._generate_with_retrieval(
             question=question,
             retrieval_result=retrieval_result,
@@ -477,7 +497,7 @@ class Stage2_5ExperimentRunner:
         )
 
         return comparison
-    
+
     def _generate_without_retrieval(
         self,
         *,
@@ -497,8 +517,8 @@ class Stage2_5ExperimentRunner:
             expected_retrieval=False,
         )
 
-        return output 
-    
+        return output
+
     def _generate_with_retrieval(
         self,
         *,
@@ -521,7 +541,7 @@ class Stage2_5ExperimentRunner:
         )
 
         return output
-    
+
     def _evaluate(
         self,
         *,
@@ -542,7 +562,7 @@ class Stage2_5ExperimentRunner:
                 "answer_evaluator.evaluate() must return "
                 "EvaluationResult."
             )
-        
+
         if (
             evaluation.reference_answer
             != reference_answer
@@ -551,21 +571,21 @@ class Stage2_5ExperimentRunner:
                 "EvaluationResult did not preserve the supplied "
                 "reference answer."
             )
-        
+
         if (
             evaluation.candidate_answer
             != answer_output.generated_text
-        ): 
+        ):
             raise ValueError(
                 "EvaluationResult did not preserve the generated "
-                "candidate answer"
+                "candidate answer."
             )
-        
-        return evaluation 
-    
-    # ---------------------------------------------------------------------------
+
+        return evaluation
+
+    # -----------------------------------------------------------------
     # Experiment summarisation
-    # ---------------------------------------------------------------------------
+    # -----------------------------------------------------------------
 
     def _summarise_results(
         self,
@@ -581,7 +601,7 @@ class Stage2_5ExperimentRunner:
             raise ValueError(
                 "Cannot summarise an empty comparison sequence."
             )
-        
+
         no_retrieval_scores = tuple(
             float(comparison.no_retrieval_score)
             for comparison in comparisons
@@ -619,14 +639,14 @@ class Stage2_5ExperimentRunner:
 
         return ExperimentResult(
             comparisons=tuple(comparisons),
-            development_example=tuple(
+            development_examples=tuple(
                 development_examples
             ),
             mean_no_retrieval_score=(
                 sum(no_retrieval_scores)
                 / comparison_count
             ),
-            mean_retrieval_score = (
+            mean_retrieval_score=(
                 sum(retrieval_scores)
                 / comparison_count
             ),
@@ -638,10 +658,10 @@ class Stage2_5ExperimentRunner:
             retrieval_hurt_count=hurt_count,
             retrieval_no_effect_count=no_effect_count,
         )
-    
-    # -------------------------------------------------------------
+
+    # -----------------------------------------------------------------
     # Uncertainty extraction
-    # -------------------------------------------------------------
+    # -----------------------------------------------------------------
 
     @staticmethod
     def _extract_uncertainty_score(
@@ -667,7 +687,7 @@ class Stage2_5ExperimentRunner:
             raise TypeError(
                 "Uncertainty score must not be boolean."
             )
-        
+
         if isinstance(uncertainty_result, (int, float)):
             score = float(uncertainty_result)
 
@@ -704,24 +724,23 @@ class Stage2_5ExperimentRunner:
                     "score, margin_uncertainty, uncertainty."
                 )
 
-                
         if not isfinite(score):
             raise ValueError(
                 "Uncertainty score must be finite."
             )
-        
-        return score 
-    
-    # ---------------------------------------------------------------------
+
+        return score
+
+    # -----------------------------------------------------------------
     # Validation
-    # ---------------------------------------------------------------------
+    # -----------------------------------------------------------------
 
     @staticmethod
     def _materialize_dataset(
         development_dataset: Iterable[
-            DevelopmentRecord
+            DevelopmentRecordProtocol
         ],
-    ) -> tuple[DevelopmentRecord, ...]:
+    ) -> tuple[DevelopmentRecordProtocol, ...]:
         """
         Materialize and validate the development dataset.
         """
@@ -730,7 +749,7 @@ class Stage2_5ExperimentRunner:
             raise TypeError(
                 "development_dataset must not be None."
             )
-        
+
         if isinstance(
             development_dataset,
             (str, bytes),
@@ -739,17 +758,22 @@ class Stage2_5ExperimentRunner:
                 "development_dataset must be an iterable of "
                 "development records, not a string."
             )
-        
+
         try:
             records = tuple(development_dataset)
-        
+
         except TypeError as error:
             raise TypeError(
+                "development_dataset must be iterable."
+            ) from error
+
+        if not records:
+            raise ValueError(
                 "development_dataset must contain at least one "
                 "record."
             )
-        
-        seen_example_ids: str[str] = set()
+
+        seen_example_ids: set[str] = set()
 
         for index, record in enumerate(records):
             if record is None:
@@ -757,7 +781,7 @@ class Stage2_5ExperimentRunner:
                     "development_dataset contains None at "
                     f"index {index}."
                 )
-            
+
             for attribute_name in (
                 "example_id",
                 "question",
@@ -765,11 +789,11 @@ class Stage2_5ExperimentRunner:
             ):
                 if not hasattr(record, attribute_name):
                     raise TypeError(
-                        "Develpment record at index "
+                        "Development record at index "
                         f"{index} does not expose "
                         f"{attribute_name!r}."
                     )
-                
+
             example_id = (
                 Stage2_5ExperimentRunner
                 ._validate_example_id(
@@ -782,7 +806,7 @@ class Stage2_5ExperimentRunner:
                     "Duplicate example_id detected: "
                     f"{example_id!r}."
                 )
-            
+
             seen_example_ids.add(example_id)
 
             Stage2_5ExperimentRunner._validate_text(
@@ -795,8 +819,8 @@ class Stage2_5ExperimentRunner:
                 value=record.reference_answer,
             )
 
-        return records 
-    
+        return records
+
     @staticmethod
     def _validate_component(
         *,
@@ -812,7 +836,7 @@ class Stage2_5ExperimentRunner:
             raise TypeError(
                 f"{name} must not be None."
             )
-        
+
         method = getattr(
             component,
             required_method,
@@ -824,7 +848,7 @@ class Stage2_5ExperimentRunner:
                 f"{name} must expose a callable "
                 f"{required_method}() method."
             )
-        
+
     @staticmethod
     def _validate_example_id(
         value: Any,
@@ -837,16 +861,16 @@ class Stage2_5ExperimentRunner:
             raise TypeError(
                 "example_id must be a string."
             )
-        
+
         normalized = value.strip()
 
         if not normalized:
             raise ValueError(
                 "example_id must not be empty."
             )
-        
-        return normalized 
-    
+
+        return normalized
+
     @staticmethod
     def _validate_text(
         *,
@@ -861,16 +885,16 @@ class Stage2_5ExperimentRunner:
             raise TypeError(
                 f"{name} must be a string."
             )
-        
+
         normalized = value.strip()
 
         if not normalized:
             raise ValueError(
                 f"{name} must not be empty."
             )
-        
+
         return normalized
-    
+
     @staticmethod
     def _validate_answer_output(
         *,
@@ -887,12 +911,12 @@ class Stage2_5ExperimentRunner:
                 "answer_generator.generate() must return "
                 "AnswerOutput."
             )
-        
+
         if output.query != expected_query:
             raise ValueError(
                 "AnswerOutput did not preserve the expected query."
             )
-        
+
         if not isinstance(
             output.generated_text,
             str,
@@ -900,33 +924,33 @@ class Stage2_5ExperimentRunner:
             raise TypeError(
                 "AnswerOutput.generated_text must be a string."
             )
-        
-        if not output.generated_text_strip():
+
+        if not output.generated_text.strip():
             raise ValueError(
                 "AnswerOutput.generated_text must not be empty."
             )
-        
+
         if (
             output.used_retrieval
             is not expected_retrieval
-        ): 
+        ):
             raise ValueError(
                 "AnswerOutput.used_retrieval is inconsistent "
                 "with the requested generation mode."
             )
-        
+
         if expected_retrieval:
             if output.retrieved_document_count < 0:
                 raise ValueError(
                     "retrieved_document_count must not be negative."
                 )
-            
+
         elif output.retrieved_document_count != 0:
             raise ValueError(
                 "No-retrieval generation must report zero "
                 "retrieved documents."
             )
-        
+
     @staticmethod
     def _validate_comparison(
         *,
@@ -936,7 +960,7 @@ class Stage2_5ExperimentRunner:
         Validate cross-object evidence consistency.
         """
 
-        if(
+        if (
             comparison.no_retrieval_output.query
             != comparison.question
         ):
@@ -944,16 +968,16 @@ class Stage2_5ExperimentRunner:
                 "No-retrieval output query is inconsistent with "
                 "the comparison question."
             )
-        
+
         if (
             comparison.retrieval_output.query
-            != comparison.question 
+            != comparison.question
         ):
             raise ValueError(
                 "Retrieval output query is inconsistent with "
                 "the comparison question."
             )
-        
+
         if (
             comparison.no_retrieval_evaluation
             .reference_answer
@@ -963,7 +987,7 @@ class Stage2_5ExperimentRunner:
                 "No-retrieval evaluation reference is "
                 "inconsistent with RetrievalComparison."
             )
-        
+
         if (
             comparison.retrieval_evaluation
             .reference_answer
@@ -973,7 +997,7 @@ class Stage2_5ExperimentRunner:
                 "Retrieval evaluation reference is inconsistent "
                 "with RetrievalComparison."
             )
-        
+
         if (
             comparison.no_retrieval_evaluation
             .candidate_answer
@@ -983,7 +1007,7 @@ class Stage2_5ExperimentRunner:
                 "No-retrieval evaluation candidate does not match "
                 "the generated answer."
             )
-        
+
         if (
             comparison.retrieval_evaluation
             .candidate_answer
@@ -993,7 +1017,7 @@ class Stage2_5ExperimentRunner:
                 "Retrieval evaluation candidate does not match "
                 "the generated answer."
             )
-        
+
         outcome_count = sum(
             (
                 bool(comparison.retrieval_helped),
@@ -1007,5 +1031,3 @@ class Stage2_5ExperimentRunner:
                 "Exactly one retrieval outcome must be true: "
                 "helped, hurt, or no effect."
             )
-        
-        
