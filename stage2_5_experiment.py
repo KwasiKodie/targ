@@ -28,6 +28,7 @@ from typing import Any, Iterable, Protocol, Sequence, runtime_checkable
 from answer_evaluator import AnswerEvaluator, EvaluationResult
 from answer_generator import AnswerGenerator, AnswerOutput
 from retrieval_comparison import RetrievalComparison 
+from development_record import DevelopmentRecord
 
 # ---------------------------------------------------------------------
 # Protocols
@@ -346,7 +347,7 @@ class Stage2_5ExperimentRunner:
     def run(
         self,
         *,
-        development_dataset: Iterable[DevelopmentRecordProtocol],
+        development_dataset: Iterable[DevelopmentRecord],
     ) -> ExperimentResult:
         """
         Run the complete stage 2.5 experiment.
@@ -391,7 +392,7 @@ class Stage2_5ExperimentRunner:
 
     def _run_example(
         self,
-        record: DevelopmentRecordProtocol,
+        record: DevelopmentRecord,
     ) -> RetrievalComparison:
         """
         Execute the full experiment flow for one development example.
@@ -720,9 +721,9 @@ class Stage2_5ExperimentRunner:
     @staticmethod
     def _materialize_dataset(
         development_dataset: Iterable[
-            DevelopmentRecordProtocol
+            DevelopmentRecord
         ],
-    ) -> tuple[DevelopmentRecordProtocol, ...]:
+    ) -> tuple[DevelopmentRecord, ...]:
         """
         Materialize and validate the development dataset.
         """
