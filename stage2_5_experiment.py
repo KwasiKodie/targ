@@ -197,7 +197,7 @@ class ExperimentResult:
 
     def __post_init__(self) -> None:
         comparison_count = len(self.comparisons)
-        calibration_count = len(self.development_example)
+        calibration_count = len(self.development_examples)
 
         if comparison_count == 0:
             raise ValueError(
