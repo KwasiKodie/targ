@@ -901,7 +901,7 @@ class Stage2_5ExperimentRunner:
                 "AnswerOutput.generated_text must be a string."
             )
         
-        if not output.generated_text_strip():
+        if not output.generated_text.strip():
             raise ValueError(
                 "AnswerOutput.generated_text must not be empty."
             )
