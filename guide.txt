@@ -226,3 +226,19 @@ Final answer:
 This makes it much easier to diagnose issues in later experiments.
 
 ---
+
+
+=========
+stage 2.5
+=========
+
+answer_generator.py
+answer_evaluator.py
+retrieval_comparison.py (immutable experiment models)
+    unit testing
+    - Generation is deterministic and evidence-preserving.
+    - Evaluation produces correct, auditable scores.
+    - The only remaining logic in the Stage 2.5 runner is orchestration.
+Stage 2.5 experiment runner
+Populate DevelopmentExample
+Recalibrate with calibrate_for_accuracy()
