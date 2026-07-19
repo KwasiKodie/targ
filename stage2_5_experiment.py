@@ -398,6 +398,11 @@ class Stage2_5ExperimentRunner:
         Execute the full experiment flow for one development example.
         """
 
+        base_prompt = (
+            "Answer the following question concisely.\n\n"
+            f"Question:\n{record.question}\n\n"
+            "Answer:"
+        )
         example_id = self._validate_example_id(
             record.example_id
         )
@@ -413,11 +418,11 @@ class Stage2_5ExperimentRunner:
         )
 
         draft_output = self.draft_generator.generate(
-            query=question,
+            base_prompt=base_prompt,
         )
 
         uncertainty_result = self.uncertainty_scorer.score(
-            draft_output
+            draft=draft_output
         )
 
         uncertainty_score = self._extract_uncertainty_score(
