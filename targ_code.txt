@@ -1065,7 +1065,7 @@ class MarginUncertaintyScorer:
         Returns
         -------
         torch.Tensor
-            Values in the interval (0, 1], subject to finite-precision
+            Values in the interval (0, 1), subject to finite-precision
             underflow for extremely large margins.
         """
 
@@ -1569,9 +1569,6 @@ class VectorRetriever(BaseRetriever):
             query,
             k=top_k,
         )
-
-        for d in docs:
-            print(d.metadata)
 
         return RetrievalResult(
 
@@ -3093,7 +3090,6 @@ class AnswerEvaluator(BaseAnswerEvaluator):
             )
         
         return text
-
 ========================
 targ/answer_generator.py
 ========================
@@ -4238,14 +4234,30 @@ class RetrievalComparison:
         return self.no_retrieval_evaluation.overall_score
     
     @property
+    def retrieval_score(self) -> float:
+        """
+        Evaluation score obtained with retrieval.
+        """
+
+        return self.retrieval_evaluation.overall_score 
+    
+    @property
+    def retrieval_no_effect(self) -> bool:
+        """
+        Whether retrieval produced exactly the same evaluation score.
+        """
+
+        return self.improvement == 0.0
+    
+    @property
     def improvement(self) -> float:
         """
         Absolute improvement obtained by retrieval.
         """
 
         return (
-            self.retrieval_score
-            - self.no_retrieval_score
+            self.retrieval_evaluation.overall_score
+            - self.no_retrieval_evaluation.overall_score
         )
     
     @property
@@ -4460,13 +4472,15 @@ class ExperimentResult:
 
     comparisons: tuple[RetrievalComparison, ...]
 
-    development_example: tuple[Any, ...]
+    development_examples: tuple[Any, ...]
 
     mean_no_retrieval_score: float
 
     mean_retrieval_score: float
 
     mean_improvement: float
+
+    retrieval_helped_count: int
 
     retrieval_hurt_count: int
 
@@ -4493,7 +4507,7 @@ class ExperimentResult:
         if self.example_count == 0:
             return 0.0
         
-        return self.retrieval_helped_counnt / self.example_count
+        return self.retrieval_helped_count / self.example_count
     
     @property
     def retrieval_no_effect_rate(self) -> float:
@@ -4761,12 +4775,12 @@ class Stage2_5ExperimentRunner:
             )
         )
 
-        no_retrieval_evaluation = self.evaluate(
+        no_retrieval_evaluation = self._evaluate(
             reference_answer=reference_answer,
             answer_output=no_retrieval_output
         )
 
-        retrieval_result = self.retriever.retriever(
+        retrieval_result = self.retriever.retrieve(
             query=question
         )
 
@@ -4945,7 +4959,7 @@ class Stage2_5ExperimentRunner:
 
         return ExperimentResult(
             comparisons=tuple(comparisons),
-            development_example=tuple(
+            development_examples=tuple(
                 development_examples
             ),
             mean_no_retrieval_score=(
@@ -5022,21 +5036,14 @@ class Stage2_5ExperimentRunner:
                         score = float(candidate)
                         break
 
-                if score is None:
-                    raise TypeError(
-                        "Unable to extract an uncertainty score. "
-                        "The scorer must return a numeric value or an "
-                        "object exposing one of: uncertainty_score, "
-                        "score, margin_uncertainty, uncertainty."
-                    )
-                
-                if score is None:
-                    raise TypeError(
-                        "Unable to extract an uncertainty score. "
-                        "The scorer must return a numeric value or an "
-                        "object exposing one of: uncertainty_score, "
-                        "score, margin_uncertainty, uncertainty."
-                    )
+            if score is None:
+                raise TypeError(
+                    "Unable to extract an uncertainty score. "
+                    "The scorer must return a numeric value or an "
+                    "object exposing one of: uncertainty_score, "
+                    "score, margin_uncertainty, uncertainty."
+                )
+
                 
         if not isfinite(score):
             raise ValueError(
@@ -5234,7 +5241,7 @@ class Stage2_5ExperimentRunner:
                 "AnswerOutput.generated_text must be a string."
             )
         
-        if not output.generated_text_strip():
+        if not output.generated_text.strip():
             raise ValueError(
                 "AnswerOutput.generated_text must not be empty."
             )
@@ -5339,6 +5346,2308 @@ class Stage2_5ExperimentRunner:
             raise ValueError(
                 "Exactly one retrieval outcome must be true: "
                 "helped, hurt, or no effect."
+            )     
+        
+==============================
+targ/retrieval_verification.py
+==============================
+"""
+retrieval_verification.py
+
+Research-grade retrieval verification for TARG.
+
+This experiment validates that the retrieval subsystem
+returns the expected evidence for benchmark questions
+before evaluating adaptive retrieval gating.
+
+Responsibilities
+----------------
+1. Execute benchmark retrieval queries.
+2. Preserve complete retrieval evidence.
+3. Compute retrieval-quality metrics.
+4. Produce immutable experiment summaries.
+
+The runner NEVER 
+
+- generates answers
+- computes uncertainty
+- calibrates thresholds
+- applies retrieval gating
+- evaluates generated answers 
+
+Author:
+TARG Reproduction 
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass 
+from math import isfinite 
+from typing import Any, Iterable, Protocol, Sequence, runtime_checkable 
+
+from retrieval import BaseRetriever, RetrievalResult 
+
+# ----------------------------------------------------------
+# Benchmark
+# ----------------------------------------------------------
+
+@dataclass(frozen=True, slots=True)
+class RetrievalBenchmark: 
+
+    """
+    One benchmark retrieval query
+    """
+
+    benchmark_id: str
+
+    query: str 
+
+    expected_sources: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+
+        object.__setattr__(
+            self,
+            "benchmark_id",
+            self._validate_text(
+                self.benchmark_id,
+                "benchmark_id",
+            ),
+        )
+
+        object.__setattr__(
+            self,
+            "query",
+            self._validate_text(
+                self.query,
+                "query",
+            ),
+        )
+
+        if not self.expected_sources:
+            raise ValueError(
+                "expected_sources must not be empty."
             )
         
+        normalized = []
+
+        for source in self.expected_sources:
+
+            normalized.append(
+                self._validate_text(
+                    source,
+                    "expected_source",
+                )
+            )
+
+        object.__setattr__(
+            self,
+            "expected_sources",
+            tuple(normalized),
+        )
+
+    @staticmethod 
+    def _validate_text(
+        value: str,
+        field: str,
+    ) -> str: 
         
+        if not isinstance(value, str):
+            raise TypeError(
+                f"{field} must be a string."
+            )
+        
+        value = value.strip()
+
+        if not value: 
+            raise ValueError(
+                f"{field} must not be empty."
+            )
+        
+        return value 
+    
+
+# ------------------------------------------------------------
+# Verification
+# ------------------------------------------------------------
+
+@dataclass(frozen=True)
+class RetrievalVerification: 
+    """
+    Retrieval evidence for one benchmark query.
+    """
+
+    benchmark: RetrievalBenchmark
+
+    retrieval: RetrievalResult 
+
+    retrieved_sources: tuple[str, ...]
+
+    top1_correct: bool 
+
+    first_correct_rank: int | None 
+
+    retrieved_document_count: int 
+
+
+# ---------------------------------------------------
+# Aggregate result 
+# ---------------------------------------------------
+
+@dataclass(frozen=True)
+class RetrievalVerificationResult:
+
+    verifications: tuple[RetrievalVerification, ...]
+
+    top1_accuracy: float 
+
+    hit_at_k: float 
+
+    mean_first_correct_rank: float | None 
+
+    @property 
+    def benchmark_count(self) -> int: 
+
+        return len(self.verifications)
+    
+    def __post_init__(self) -> None: 
+
+        return len(self.verifications)
+    
+    def __post_init__(self) -> None: 
+
+        if not self.verifications:
+            raise ValueError(
+                "At least one verification is required."
+            )
+        
+        for field in (
+            self.top1_accuracy,
+            self.hit_at_k,
+        ):
+            
+            if not isfinite(field):
+                raise ValueError(
+                    "Metric must be finite."
+                )
+            
+            if field < 0 or field > 1:
+                raise ValueError(
+                    "Metric must lie in [0,1]."
+                )
+            
+        if (
+            self.mean_first_correct_rank 
+            is not None 
+            and not isfinite(
+                self.mean_first_correct_rank 
+            )
+            or 
+            self.mean_first_correct_rank <= 0
+        ): 
+            raise ValueError(
+                "Invalid mean_first_correct_rank."
+            )
+    
+
+    # --------------------------------------------------------
+    # Retriever protocol
+    # --------------------------------------------------------
+
+    @runtime_checkable 
+    class RetrieverProtocol(Protocol):
+
+        def retrieve(
+            self,
+            query: str, 
+            top_k: int = 5,
+        ) -> RetrievalResult: 
+            ...
+
+
+# ------------------------------------------------------------
+# Runner
+# ------------------------------------------------------------
+
+class RetrievalVerificationRunner:
+    """
+    Execute retrieval verification experiments.
+    """
+
+    def __init__(
+        self,
+        *,
+        retriever: BaseRetriever, 
+        top_k: int = 5,
+    ): 
+        
+        if retriever is None:
+            raise TypeError(
+                "retriever must not be None."
+            )
+        
+        if not isinstance(top_k, int):
+            raise TypeError(
+                "top_k must be an integer."
+            )
+        
+        if top_k <= 0:
+            raise ValueError(
+                "top_k must be greater than zero."
+            )
+        
+        self.retriever = retriever 
+        self.top_k = top_k 
+
+    def run(
+        self, 
+        benchmarks: Iterable[RetrievalBenchmark],
+    ) -> RetrievalVerification: 
+        
+        benchmarks = self._materialize(
+            benchmarks 
+        )
+
+        verifications = tuple(
+            self._verify_benchmark(
+                benchmark 
+            )
+            for benchmark in benchmarks 
+        )
+
+        return self._summarise(
+            verifications 
+        )
+    
+    # ---------------------------------------------
+
+    def _verify_benchmark(
+        self,
+        benchmark: RetrievalBenchmark,
+    ) -> RetrievalVerification: 
+        
+        retrieval = self.retriever.retrieve(
+            query=benchmark.query,
+            top_k=self.top_k,
+        )
+
+        if retrieval is None:
+            raise RuntimeError(
+                "Retriever returned None."
+            )
+        
+        retrieved_sources = []
+
+        for document in retrieval.documents:
+
+            source = (
+                document.metadata
+                .get("source")
+            )
+
+            if (
+                not isinstance(source, str)
+                or
+                not source.strip()
+            ):
+                raise ValueError(
+                    "Every retrieved document "
+                    "must contain metadata['source']"
+                )
+            
+            retrieved_sources.append(
+                source.strip()
+            )
+
+        retrieved_sources = tuple(
+            retrieved_sources 
+        )
+
+        top1_correct = (
+            len(retrieved_sources) > 0
+            and 
+            retrieved_sources[0]
+            in benchmark.expected_sources 
+        )
+
+        hit_at_k = any(
+            source
+            in benchmark.expected_sources 
+            for source in retrieved_sources 
+        )
+
+        first_rank = None 
+
+        for index, source in enumerate(
+            retrieved_sources, 
+            start=1,
+        ): 
+            
+            if (
+                source
+                in benchmark.expected_sources
+            ): 
+                first_rank = index 
+                break 
+
+        return RetrievalVerification(
+            benchmark=benchmark,
+            retrieval=retrieval,
+            retrieved_sources=retrieved_sources,
+            top1_correct=top1_correct,
+            hit_at_k=hit_at_k,
+            first_correct_rank=first_rank,
+        )
+    
+    # -----------------------------------------------------------
+
+    @staticmethod 
+    def _summarise(
+        verifications:
+        Sequence[RetrievalVerification],
+    ) -> RetrievalVerificationResult:
+        
+        n = len(verifications)
+
+        top1 = sum(
+            item.top1_correct
+            for item in verifications 
+        ) / n 
+
+        hit_at_k = sum(
+            item.hit_at_k
+            for item in verifications 
+        ) / n 
+
+        ranks = [
+            item.first_correct_rank
+            for item in verifications 
+            if item.first_correct_rank 
+            is not None
+        ]
+
+        mean_rank = (
+            None 
+            if not ranks 
+            else sum(ranks) / len(ranks)
+        )
+
+        return RetrievalVerificationResult(
+            verifications=tuple(
+                verifications
+            ),
+            top1_accuracy=top1,
+            hit_at_k=hit_at_k,
+            mean_first_correct_rank=mean_rank,
+        )
+    
+    # ---------------------------------------------------
+
+    @staticmethod 
+    def _materialize(
+        benchmarks:
+        Iterable[RetrievalBenchmark],
+    ) -> tuple[RetrievalBenchmark, ...]:
+        
+        if benchmarks is None:
+            raise TypeError(
+                "benchmarks must not be None."
+            )
+        
+        benchmarks = tuple(
+            benchmarks 
+        )
+
+        if not benchmarks:
+            raise ValueError(
+                "At least on bencmark "
+                "is required."
+            )
+        
+        seen = set()
+
+        for benchmark in benchmarks: 
+
+            if not isinstance(
+                benchmark,
+                RetrievalBenchmark,
+            ): 
+                raise TypeError(
+                    "Expected RetrievalBenchmark."
+                )
+            
+            if (
+                benchmark.benchmark_id
+                in seen 
+            ):
+                raise TypeError(
+                    "Expected RetrievalBenchmark."
+                )
+            
+            if (
+                benchmark.benchmark_id
+                in seen 
+            ):
+                raise ValueError(
+                    "Duplicate benchmark_id: "
+                    f"{benchmark.benchmark_id}"
+                )
+            
+            seen.add(
+                benchmark.benchmark_id
+            )
+
+        return benchmarks 
+
+==========================
+targ/rag/corpus_builder.py
+==========================
+"""
+corpus_builder.py
+
+Deterministic document loading and chunking for the representative
+TARG corpus. 
+
+Responsibilities
+----------------
+1. Load every PDF from a fixed corpus directory.
+2. Extract text page by page.
+3. Normalize extracted text consistently.
+4. Split documents into approximately 1,000-character passages.
+5. Apply a 100-character overlap.
+6. Discard passages shorter than 200 characters.
+7. Attach stable provenance metadata to every chunk.
+8. Produce an immutable corpus-build result.
+
+The builder does NOT 
+
+- create embeddings
+- construct a vector index 
+- perform retrieval 
+- evaluate retrieval quality 
+- execute the TARG gate
+
+Author:
+TARG Reproduction
+"""
+
+from __future__ import annotations
+
+import hashlib 
+import re 
+from dataclasses import dataclass 
+from pathlib import Path 
+from types import MappingProxyType 
+from typing import Iterable, Mapping, Sequence 
+
+from langchain_core.documents import Document 
+from langchain_community.document_loaders import PyPDFLoader 
+from langchain_text_splitters import RecursiveCharacterTextSplitter 
+
+# --------------------------------------------------------------------
+# Corpus document specification 
+# --------------------------------------------------------------------
+
+@dataclass(frozen=True, slots=True)
+class CorpusDocumentSpec:
+    """
+    Metadata describing one source document in the corpus.
+
+    Attributes
+    ----------
+    corpus_id:
+        Stable machine-readable identifier. 
+
+    filename: 
+        Exact PDF filename within the corpus directory. 
+
+    title: 
+        Canonical document title. 
+
+    category: 
+        Broad document category, such as ``rag_research`` or 
+        ``security_standard``.
+    """
+
+    corpus_id: str 
+    filename: str 
+    title: str 
+    category: str 
+
+    def __post_init__(self) -> None:
+
+        object.__setattr__(
+            self,
+            "corpus_id",
+            self._validate_text(
+                self.corpus_id, 
+                "corpus_id",
+            ),
+        )
+
+        object.__setattr__(
+            self,
+            "filename",
+            self._validate_filename(
+                self.filename,
+            ),
+        )
+
+        object.__setattr__(
+            self,
+            "title",
+            self._validate_text(
+                self.title, 
+                "title",
+            ),
+        )
+
+        object.__setattr__(
+            self,
+            "category",
+            self._validate_text(
+                self.category,
+                "category",
+            ),
+        )
+
+    @staticmethod 
+    def _validate_text(
+        value: str, 
+        field_name: str,
+    ) -> str: 
+        
+        if not isinstance(value, str):
+            raise TypeError(
+                f"{field_name} must be a string."
+            )
+        
+        value = value.strip()
+
+        if not value: 
+            raise ValueError(
+                f"{field_name} must not be empty."
+            )
+        
+        return value 
+    
+    @classmethod 
+    def _validate_filename(
+        cls, 
+        value: str, 
+    ) -> str: 
+        
+        value = cls._validate_text(
+            value,
+            "filename",
+        )
+
+        path = Path(value)
+
+        if path.name != value: 
+            raise ValueError(
+                "filename must contain only the file name, "
+                "not a directory path."
+            )
+        
+        if path.suffix.lower() != ".pdf":
+            raise ValueError(
+                "filename must identify a PDF file."
+            )
+        
+        return value 
+    
+
+# -------------------------------------------------------
+# Chunking configuration
+# -------------------------------------------------------
+
+@dataclass(frozen=True, slots=True)
+class CorpusChunkingConfig: 
+
+    """
+    Fixed chunking configuration for the representative corpus.
+    """
+
+    chunk_size: int = 1_000
+
+    chunk_overlap: int = 100 
+
+    minimum_chunk_size: int = 200
+
+    separators: tuple[str, ...] = (
+        "\n\n",
+        "\n",
+        ". ",
+        " ",
+        "",
+    )
+
+    def __post_init__(self) -> None: 
+
+        if not isinstance(self.chunk_size, int):
+            raise TypeError(
+                "chunk_size must be an integer."
+            )
+        
+        if self.chunk_size <= 0:
+            raise ValueError(
+                "chunk_size must be greater than zero."
+            )
+        
+        if not isinstance(self.chunk_overlap, int):
+            raise TypeError(
+                "chunk_overlap must be an integer."
+            )
+        
+        if self.chunk_overlap < 0:
+            raise ValueError(
+                "chunk_overlap must not be negative."
+            )
+        
+        if self.chunk_overlap >= self.chunk_size:
+            raise ValueError(
+                "chunk_overlap must be smaller than chunk_size."
+            )
+        
+        if self.chunk_overlap >= self.chunk_size:
+            raise ValueError(
+                "chunk_overlap must be smaller than chunk_size."
+            )
+        
+        if not isinstance(
+            self.minimum_chunk_size,
+            int,
+        ):
+            raise TypeError(
+                "minimum_chunk_size must be an integer."
+            )
+        
+        if self.minimum_chunk_size <= 0:
+            raise ValueError(
+                "minimum_chunk_size must be greater than zero."
+            )
+        
+        if self.minimum_chunk_size > self.chunk_size: 
+            raise ValueError(
+                "minimum_chunk_size must not exceed chunk_size."
+            )
+        
+        if not self.separators:
+            raise ValueError(
+                "separators must not be empty."
+            )
+        
+
+# ------------------------------------------------------------------
+# Immutable output records
+# ------------------------------------------------------------------
+
+@dataclass(frozen=True, slots=True)
+class CorpusSourceSummary:
+    """
+    Build statistics for one source document.
+    """
+
+    corpus_id: str 
+
+    source: str 
+
+    title: str 
+
+    page_count: int 
+
+    extracted_character_count: int 
+
+    chunk_count: int 
+
+@dataclass(frozen=True, slots=True)
+class CorpusBuildResult:
+    """
+    Complete result of a deterministic corpus build.
+    """
+
+    documents: tuple[Document, ...]
+
+    source_summaries: tuple[CorpusSourceSummary, ...]
+
+    total_source_count: int 
+
+    total_page_count: int 
+
+    total_chunk_count: int 
+
+    total_character_count: int 
+
+    corpus_fingerprint: str 
+
+    chunking_config: CorpusChunkingConfig 
+
+    def __post_init__(self) -> None: 
+
+        if self.total_source_count != len(
+            self.source_summaries 
+        ):
+            raise ValueError(
+                "total_source_count does not match "
+                "source_summaries."
+            )
+        
+        if self.total_chunk_count != len(
+            self.documents
+        ):
+            raise ValueError(
+                "total_chunk_count does not match documents."
+            )
+        
+        if not self.corpus_fingerprint:
+            raise ValueError(
+                "corpus_fingerprint must not be empty."
+            )
+        
+# --------------------------------------------------------------
+# Representative corpus manifest 
+# --------------------------------------------------------------
+
+REPRESENTATIVE_CORPUS: tuple[CorpusDocumentSpec, ...] = (
+
+    CorpusDocumentSpec(
+        corpus_id="self_rag",
+        filename="self_rag.pdf",
+        title=(
+            "SELF-RAG: LEARNING TO RETRIEVE, GENERATE, AND "
+            "CRITIQUE THROUGH SELF-REFLECTION"
+        ),
+        category="rag_research",
+    ),
+
+    CorpusDocumentSpec(
+        corpus_id="adaptive_rag",
+        filename="adaptive_rag.pdf",
+        title=(
+            "Adaptive-RAG: Learning to Adapt "
+            "Retrieval-Augmented Large Language Models "
+            "Through Question Complexity"
+        ), 
+        category="rag_research",
+    ),
+
+    CorpusDocumentSpec(
+        corpus_id="rag_survey",
+        filename="rag_survey.pdf",
+        title=(
+            "A Comprehensive Survey of Retrieval-Augmented "
+            "Generation (RAG): Evolution, Current Landscape "
+            "and Future Directions"
+        ),
+        category="rag_survey",
+    ),
+
+    CorpusDocumentSpec(
+        corpus_id="targ",
+        filename="targ.pdf",
+        title=(
+            "Retrieval as a Decision: Training-Free "
+            "Adaptive Gating for Efficient RAG"
+        ),
+        category="rag_research",
+    ),
+
+    CorpusDocumentSpec(
+        corpus_id="coala",
+        filename="coala.pdf",
+        title="Cognitive Architectures for Language Agents",
+        category="agent_memory",
+    ),
+
+    CorpusDocumentSpec(
+        corpus_id="nist_sp_800_115",
+        filename="nist_sp_800_115.pdf",
+        title=(
+            "Technical Guide to Information Security "
+            "Testing and Assessment"
+        ),
+        category="security_standard",
+    ),
+
+    CorpusDocumentSpec(
+        corpus_id="ptes",
+        filename="ptes.pdf",
+        title=(
+            "The Penetration Testing Execution "
+            "Standard Documentation"
+        ),
+        category="security_methodology",
+    ),
+)
+
+# ------------------------------------------------------------
+# Corpus builder 
+# ------------------------------------------------------------
+
+class RepresentativeCorpusBuilder:
+    """
+    Load and consistently chunk the representative corpus.
+    """
+
+    def __init__(
+        self,
+        *,
+        corpus_directory: str | Path,
+        specifications: Sequence[
+            CorpusDocumentSpec 
+        ] = REPRESENTATIVE_CORPUS,
+        config: CorpusChunkingConfig | None = None, 
+    ) -> None: 
+        
+        self._corpus_directory = self._validate_directory(
+            corpus_directory
+        )
+
+        self._specifications = self._validate_specifications(
+            specifications
+        )
+
+        self._config = (
+            config 
+            if config is not None 
+            else CorpusChunkingConfig()
+        )
+
+        if not isinstance(
+            self._config, 
+            CorpusChunkingConfig,
+        ):
+            raise TypeError(
+                "config must be a CorpusChunkingConfig."
+            )
+        
+        self._splitter = RecursiveCharacterTextSplitter(
+            chunk_size=self._config.chunk_size, 
+            chunk_overlap=self._config.chunk_overlap,
+            separators=list(
+                self._config.separators
+            ),
+            length_function=len,
+            is_separator_regex=False,
+        )
+
+    # --------------------------------------------------------------
+
+    @property 
+    def corpus_directory(self) -> Path:
+        return self._corpus_directory 
+    
+    @property 
+    def specifications(
+        self, 
+    ) -> tuple[CorpusDocumentSpec, ...]:
+        return self._specifications 
+    
+    @property 
+    def config(self) -> CorpusChunkingConfig:
+        return self._config 
+    
+    # -------------------------------------------------------------
+
+    def build(self) -> CorpusBuildResult:
+        """
+        Load, normalize, chunk, validate and summarize the corpus.
+        """
+
+        self._validate_source_files()
+
+        all_chunks: list[Document] = []
+
+        source_summaries: list[
+            CorpusSourceSummary
+        ] = []
+
+        for specification in self._specifications:
+
+            source_chunks, summary = (
+                self._process_source(
+                    specification 
+                )
+            )
+
+            all_chunks.extend(
+                source_chunks
+            )
+
+            source_summaries.append(
+                summary
+            )
+
+        self._validate_chunk_ids(
+            all_chunks
+        )
+
+        fingerprint = self._create_corpus_fingerprint(
+            all_chunks
+        )
+
+        return CorpusBuildResult(
+            documents=tuple(all_chunks),
+            source_summaries=tuple(
+                source_summaries
+            ),
+            total_source_count=len(
+                source_summaries
+            ),
+            total_page_count=sum(
+                item.page_count
+                for item in source_summaries 
+            ),
+            total_chunk_count=len(
+                all_chunks
+            ),
+            total_character_count=sum(
+                len(document.page_content)
+                for document in all_chunks 
+            ),
+            corpus_fingerprint=fingerprint,
+            chunking_config=self._config, 
+        )
+    
+    # ------------------------------------------------------
+
+    def _process_source(
+        self,
+        specification: CorpusDocumentSpec,
+    ) -> tuple[
+        tuple[Document, ...],
+        CorpusSourceSummary,
+    ]:
+        """
+        Load and chunk one PDF source.
+        """
+
+        source_path = (
+            self._corpus_directory 
+            / specification.filename 
+        )
+
+        loader = PyPDFLoader(
+            str(source_path)
+        )
+
+        pages = loader.load()
+
+        if not pages: 
+            raise ValueError(
+                f"No pages were extracted from "
+                f"{specification.filename!r}."
+            )
+        
+        source_chunks: list[Document] = []
+
+        extracted_character_count = 0
+
+        source_chunk_index = 0 
+
+        for fallback_page_index, page in enumerate(
+            pages
+        ):
+            page_text = self._normalize_text(
+                page.page_content
+            )
+
+            extracted_character_count += len(
+                page_text 
+            )
+
+            if not page_text: 
+                continue 
+
+            page_number = self._resolve_page_number(
+                page.metadata,
+                fallback_page_index,
+            )
+
+            split_texts = (
+                self._splitter.split_text(
+                    page_text 
+                )
+            )
+
+            for page_chunk_index, chunk_text in enumerate(
+                split_texts
+            ):
+                
+                chunk_text = self._normalize_text(
+                    chunk_text 
+                )
+
+                if (
+                    len(chunk_text)
+                    < self._config.minimum_chunk_size
+                ): 
+                    continue 
+
+                chunk_id = self._create_chunk_id(
+                    corpus_id=specification.corpus_id,
+                    page_number=page_number,
+                    chunk_index=source_chunk_index,
+                    text=chunk_text,
+                )
+
+                metadata = MappingProxyType(
+                    {
+                        "id": chunk_id,
+                        "corpus_id": (
+                            specification.corpus_id
+                        ),
+                        "source": (
+                            specification.filename
+                        ),
+                        "source_path": str(
+                            source_path.resolve()
+                        ),
+                        "title": specification.title,
+                        "category": (
+                            specification.category
+                        ),
+                        "page": page_number,
+                        "page_chunk_index": (
+                            page_chunk_index
+                        ),
+                        "chunk": source_chunk_index,
+                        "character_count": len(
+                            chunk_text
+                        ),
+                        "chunk_size": (
+                            self._config.chunk_size
+                        ),
+                        "chunk_overlap": (
+                            self._config.chunk_overlap
+                        ),
+                        "minimum_chunk_size": (
+                            self._config
+                            .minimum_chunk_size
+                        ),
+                    }
+                )
+
+                source_chunks.append(
+                    Document(
+                        page_content=chunk_text,
+                        metadata=dict(metadata),
+                    )
+                )
+
+                source_chunk_index += 1
+
+        if not source_chunks:
+            raise ValueError(
+                f"No valid chunks were produced from "
+                f"{specification.filename!r}."
+            )
+        
+        summary = CorpusSourceSummary(
+            corpus_id=specification.corpus_id,
+            source=specification.filename,
+            title=specification.title,
+            page_count=len(pages),
+            extracted_character_count=(
+                extracted_character_count
+            ),
+            chunk_count=len(source_chunks),
+        )
+
+        return (
+            tuple(source_chunks),
+            summary,
+        )
+    
+    # -----------------------------------------------------
+
+    def _validate_source_files(self) -> None:
+        """
+        Ensure every manifest entry resolves to a readable PDF.
+        """
+
+        missing: list[str] = []
+
+        for specification in self._specifications:
+
+            path = (
+                self._corpus_directory 
+                / specification.filename
+            )
+
+            if not path.is_file():
+                missing.append(
+                    specification.filename
+                )
+
+        if missing:
+            formatted = ", ".join(
+                sorted(missing)
+            )
+
+            raise FileNotFoundError(
+                "The following corpus files are missing: "
+                f"{formatted}"
+            )
+        
+    # ------------------------------------------------------------
+
+    @staticmethod
+    def _normalize_text(
+        text: str, 
+    ) -> str: 
+        """
+        Normalize PDF-extracted text without changing its meaning.
+
+        Normalization
+        -------------
+        1. Remove soft hyphens.
+        2. Repair words split across line breaks. 
+        3. Normalize line endings.
+        4. Collapse repeated horizontal whitespace.
+        5. Preserve paragraph boundaries.
+        """
+
+        if not isinstance(text, str):
+            raise TypeError(
+                "Extracted page text must be a string."
+            )
+        
+        text = text.replace(
+            "\u00ad",
+            "",
+        )
+
+        text = text.replace(
+            "\r\n",
+            "\n",
+        ).replace(
+            "\r",
+            "\n",
+        )
+
+        text = re.sub(
+            r"(?<=\w)-\n(?=\w)",
+            "",
+            text,
+        )
+
+        paragraphs = re.split(
+            r"\n\s*\n",
+            text,
+        )
+
+        normalized_paragraphs: list[str] = []
+
+        for paragraph in paragraphs:
+
+            paragraph = re.sub(
+                r"[ \t]+",
+                " ",
+                paragraph,
+            )
+
+            paragraph = re.sub(
+                r"\s*\n\s*",
+                " ",
+                paragraph,
+            )
+
+            paragraph = paragraph.strip()
+
+            if paragraph:
+                normalized_paragraphs.append(
+                    paragraph
+                )
+
+        return "\n\n".join(
+            normalized_paragraphs
+        )
+    
+    # ---------------------------------------------------------
+
+    @staticmethod
+    def _resolve_page_number(
+        metadata: Mapping[str, object],
+        fallback_page_index: int,
+    ) -> int:
+        """
+        Return a stable one-based page number.
+        """
+
+        raw_page = metadata.get(
+            "page",
+            fallback_page_index,
+        )
+
+        if isinstance(raw_page, bool):
+            raw_page = fallback_page_index 
+
+        try:
+            page_index = int(raw_page)
+        except (
+            TypeError, 
+            ValueError,
+        ):
+            page_index = fallback_page_index 
+
+        return page_index + 1
+    
+    # ----------------------------------------------------
+
+    @staticmethod 
+    def _create_chunk_id(
+        *,
+        corpus_id: str,
+        page_number: int,
+        chunk_index: int, 
+        text: str,
+    ) -> str: 
+        """
+        Produce a stable, content-sensitive chunk identifier.
+        """
+
+        digest_input = (
+            f"{corpus_id}|"
+            f"{page_number}|"
+            f"{chunk_index}|"
+            f"{text}"
+        )
+
+        digest = hashlib.sha256(
+            digest_input.encode(
+                "utf-8"
+            )
+        ).hexdigest()[:16]
+
+        return (
+            f"{corpus_id}"
+            f"_p{page_number:04d}"
+            f"_c{chunk_index:05d}"
+            f"_{digest}"
+        )
+    
+    # -------------------------------------------------------------
+
+    @staticmethod 
+    def _create_corpus_fingerprint(
+        documents: Iterable[Document],
+    ) -> str: 
+        """
+        Hash all ordered chunk IDs and text. 
+
+        The fingerprint changes when source content, chunking order, 
+        or chunk boundaries change.
+        """
+
+        hasher = hashlib.sha256()
+
+        for document in documents:
+
+            chunk_id = document.metadata.get(
+                "id"
+            )
+
+            hasher.update(
+                str(chunk_id).encode(
+                    "utf-8"
+                )
+            )
+
+            hasher.update(
+                b"\0"
+            )
+
+            hasher.update(
+                document.page_content.encode(
+                    "utf-8"
+                )
+            )
+
+            hasher.update(
+                b"\0"
+            )
+        
+        return hasher.hexdigest()
+    
+    # ---------------------------------------------------
+
+    @staticmethod 
+    def _validate_chunk_ids(
+        documents: Sequence[Document],
+    ) -> None: 
+        """
+        Ensure every generated chunk ID is present and unique.
+        """
+
+        seen: set[str] = set()
+
+        for document in documents:
+
+            chunk_id = document.metadata.get(
+                "id"
+            )
+
+            if (
+                not isinstance(chunk_id, str)
+                or not chunk_id
+            ):
+                raise ValueError(
+                    "Every chunk must have a non-empty "
+                    "metadata['id'] value."
+                )
+            
+            if chunk_id in seen:
+                raise ValueError(
+                    f"Duplicate chunk ID: {chunk_id}"
+                )
+            
+            seen.add(
+                chunk_id
+            )
+
+    # --------------------------------------------------------
+
+    @staticmethod 
+    def _validate_directory(
+        value: str | Path,
+    ) -> Path:
+        
+        if not isinstance(
+            value,
+            (str, Path),
+        ):
+            raise TypeError(
+                "corpus_directory must be a string or Path."
+            )
+        
+        path = Path(value).expanduser()
+
+        if not path.exists():
+            raise FileNotFoundError(
+                f"Corpus directory does not exist: {path}"
+            )
+        
+        if not path.is_dir():
+            raise NotADirectoryError(
+                f"Corpus path is not a directory: {path}"
+            )
+        
+        return path.resolve()
+    
+    # ---------------------------------------------------------------
+
+    @staticmethod
+    def _validate_specifications(
+        specifications: Sequence[
+            CorpusDocumentSpec
+        ],
+    ) -> tuple[CorpusDocumentSpec, ...]:
+        
+        if specifications is None:
+            raise TypeError(
+                "specifications must not be None."
+            )
+        
+        specifications = tuple(
+            specifications
+        )
+
+        if not specifications:
+            raise ValueError(
+                "At least one corpus specification is required."
+            )
+        
+        corpus_ids: set[str] = set()
+
+        filenames: set[str] = set()
+
+        for specification in specifications:
+
+            if not isinstance(
+                specification,
+                CorpusDocumentSpec,
+            ):
+                raise TypeError(
+                    "Each specification must be a "
+                    "CorpusDocumentSpec."
+                )
+            
+            if specification.corpus_id in corpus_ids:
+                raise ValueError(
+                    "Duplicate corpus_id: "
+                    f"{specification.corpus_id}"
+                )
+            
+            if specification.filename in filenames:
+                raise ValueError(
+                    "Duplicate filename: "
+                    f"{specification.filename}"
+                )
+            
+            corpus_ids.add(
+                specification.corpus_id
+            )
+
+            filenames.add(
+                specification.filename 
+            )
+
+        return specifications 
+
+===============
+targ/chunker.py
+===============
+"""
+chunker.py
+
+Deterministic document chunking for Retrieval Verification.
+
+This module is responsible for converting extracted corpus documents
+into immutable chunks suitable for indexing by the vector store. 
+
+Responsibilities
+----------------
+* Validate chunking configuration.
+* Split text deterministically.
+* Generate immutable Chunk objects.
+* Preserve source metadata.
+
+The Chunker NEVER:
+
+* Creates embeddings.
+* Builds a vector database.
+* Performs retrieval.
+* Reranks documents.
+
+Author:
+Retrieval as a Decision (TARG) Reproduction
+"""
+
+from __future__ import annotations 
+
+from collections.abc import Iterable 
+from typing import Any
+
+from corpus_models import Chunk, CorpusDocument 
+
+class Chunker:
+    """
+    Deterministic character-based document chunker.
+
+    Default configuration reproduces the preprocessing described in
+    the TARG paper. 
+
+    Parameters
+    ----------
+    chunk_size:
+        Maximum characters per chunk.
+
+    chunk_overlap:
+        Character overlap between adjacent chunks.
+
+    minimum_chunk_size: 
+        Minimum characters required for the final chunk.
+    """
+
+    DEFAULT_CHUNK_SIZE = 1000
+    DEFAULT_CHUNK_OVERLAP = 100
+    DEFAULT_MINIMUM_CHUNK_SIZE = 200
+
+    def __init__(
+        self,
+        *,
+        chunk_size: int = DEFAULT_CHUNK_SIZE,
+        chunk_overlap: int = DEFAULT_CHUNK_OVERLAP,
+        minimum_chunk_size: int = DEFAULT_MINIMUM_CHUNK_SIZE,
+    ) -> None: 
+        
+        self.chunk_size = chunk_size 
+        self.chunk_overlap = chunk_overlap 
+        self.minimum_chunk_size = minimum_chunk_size 
+
+        self._validate_constructor()
+
+    # --------------------------------------------------
+    # Public API
+    # --------------------------------------------------
+
+    def chunk_document(
+        self,
+        document: CorpusDocument,
+    ) -> tuple[Chunk, ...]:
+        """
+        Chunk a single document. 
+
+        Parameters
+        ----------
+        document:
+            Corpus document.
+
+        Returns
+        -------
+        tuple[Chunk, ...]
+        """
+
+        self._validate_document(document)
+
+        pieces = self._split_text(document.text)
+
+        chunks: list[Chunk] = []
+
+        for index, text in enumerate(pieces):
+
+            chunks.append(
+
+                self._build_chunk(
+                    document=document,
+                    chunk_index=index,
+                    text=text,
+                )
+            )
+
+        return tuple(chunks)
+    
+    def chunk_documents(
+        self,
+        documents: Iterable[CorpusDocument],
+    ) -> tuple[Chunk, ...]:
+        """
+        Chunk multiple corpus documents.
+        """
+
+        if documents is None:
+            raise TypeError(
+                "documents must not be None."
+            )
+        
+        documents = tuple(documents)
+
+        if len(documents) == 0:
+            raise ValueError(
+                "At least one document is required."
+            )
+        
+        chunks: list[Chunk] = []
+
+        for document in documents:
+
+            chunks.extend(
+                self.chunk_document(document)
+            )
+
+        return tuple(chunks)
+    
+    # ----------------------------------------------------------
+    # Internal helpers
+    # ----------------------------------------------------------
+
+    def _split_text(
+        self,
+        text: str,
+    ) -> tuple[str, ...]:
+        """
+        Split text using a deterministic sliding window.
+        """
+
+        if not isinstance(text, str):
+            raise TypeError(
+                "text must be a string."
+            )
+        
+        text = text.strip()
+
+        if not text:
+            return ()
+        
+        chunks: list[str] = []
+
+        step = (
+            self.chunk_size 
+            - self.chunk_overlap 
+        )
+
+        start = 0 
+
+        while start < len(text):
+
+            end = start + self.chunk_size 
+
+            piece = text[start:end]
+
+            if (
+                len(piece)
+                < self.minimum_chunk_size
+            ):
+                break 
+
+            chunks.append(piece)
+
+            start += step 
+
+        return tuple(chunks)
+    
+    def _build_chunk(
+        self,
+        *,
+        document: CorpusDocument, 
+        chunk_index: int, 
+        text: str,
+    ) -> Chunk: 
+        """
+        Build an immutable Chunk.
+        """
+
+        chunk_id = (
+            f"{document.source}"
+            f"_p{document.page:03d}"
+            f"_c{chunk_index:03d}"
+        )
+
+        metadata = {
+            "source": document.source,
+            "page": document.page,
+            "chunk": chunk_index,
+            "id": chunk_id, 
+        }
+
+        return Chunk(
+            id=chunk_id,
+            source=document.source,
+            page=document.page,
+            chunk_index=chunk_index,
+            text=text,
+            metadata=metadata,
+        )
+    
+    # ----------------------------------------------
+    # Validation
+    # ----------------------------------------------
+
+    def _validate_constructor(self) -> None:
+
+        if not isinstance(
+            self.chunk_size,
+            int,
+        ):
+            raise TypeError(
+                "chunk_size must be an integer."
+            )
+        
+        if self.chunk_size <= 0:
+            raise ValueError(
+                "chunk_size must be positive."
+            )
+        
+        if not isinstance(
+            self.chunk_overlap,
+            int,
+        ): 
+            raise TypeError(
+                "chunk_overlap must be an integer."
+            )
+        
+        if self.chunk_overlap < 0:
+            raise ValueError(
+                "chunk_overlap cannot be negative."
+            )
+        
+        if (
+            self.chunk_overlap
+            >= self.chunk_size 
+        ):
+            raise ValueError(
+                "chunk_overlap must be smaller than chunk_size."
+            )
+        
+        if not isinstance(
+            self.minimum_chunk_size,
+            int,
+        ):
+            raise TypeError(
+                "minimum_chunk_size must be an integer."
+            )
+        
+        if self.minimum_chunk_size <= 0:
+            raise ValueError(
+                "minimum_chunk_size must be positive."
+            )
+        
+
+    def _validate_document(
+        self,
+        document: CorpusDocument,
+    ) -> None:
+        
+        if document is None:
+            raise TypeError(
+                "document must not be None."
+            )
+        
+        if not isinstance(
+            document,
+            CorpusDocument,
+        ): 
+            raise TypeError(
+                "document must be a CorpusDocument."
+            )
+        
+        if not document.source.strip():
+            raise ValueError(
+                "Document source cannot be empty."
+            )
+        
+        if document.page <= 0:
+            raise ValueError(
+                "Document page must be positive."
+            )
+        
+        if document.page <= 0:
+            raise ValueError(
+                "Document page must be positive."
+            )
+        
+        if not document.text.strip():
+            raise ValueError(
+                "Document text cannot be empty."
+            )
+
+=====================
+targ/corpus_models.py
+=====================
+"""
+corpus_models.py
+
+Immutable document and chunk models used during corpus preprocessing.
+"""
+
+from __future__ import annotations 
+
+from dataclasses import dataclass, field 
+from types import MappingProxyType 
+from typing import Any, Mapping 
+
+@dataclass(frozen=True, slots=True)
+class CorpusDocument:
+    source: str 
+    page: int 
+    text: str 
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.source, str):
+            raise TypeError("source must be a string.")
+        
+        if not self.source.strip():
+            raise ValueError("source must not be empty.")
+        
+        if not isinstance(self.page, int):
+            raise TypeError("page must be an integer.")
+        
+        if self.page <= 0:
+            raise ValueError("page must be positive.")
+        
+        if not isinstance(self.text, str):
+            raise TypeError("text must be a string.")
+        
+        if not self.text.strip():
+            raise ValueError("text must not be empty.")
+        
+        if not isinstance(self.metadata, Mapping):
+            raise TypeError("metadata must be a mapping.")
+        
+        object.__setattr__(
+            self,
+            "metadata",
+            MappingProxyType(dict(self.metadata)),
+        )
+
+@dataclass(frozen=True, slots=True)
+class Chunk:
+    id: str 
+    source: str 
+    page: int 
+    chunk_index: int 
+    text: str 
+    metadata: Mapping[str, Any]
+
+    def __post_init__(self) -> None: 
+        if not isinstance(self.id, str):
+            raise TypeError("id must be a string.")
+        
+        if not self.id.strip():
+            raise ValueError("id must not be empty.")
+        
+        if not isinstance(self.source, str):
+            raise TypeError("source must be a string.")
+        
+        if not self.source.strip():
+            raise ValueError("source must not be empty.")
+        
+        if not isinstance(self.page, int):
+            raise TypeError("page must be an integer.")
+        
+        if self.page <= 0:
+            raise ValueError("page must be positive.")
+        
+        if not isinstance(self.chunk_index, int):
+            raise TypeError("chunk_index must be an integer.")
+        
+        if self.chunk_index < 0:
+            raise ValueError("chunk_index cannot be negative.")
+        
+        if not isinstance(self.text, str):
+            raise TypeError("text must be a string.")
+        
+        if not self.text.strip():
+            raise ValueError("text must not be empty.")
+        
+        if not isinstance(self.metadata, Mapping):
+            raise TypeError("metadata must be a mapping.")
+        
+        object.__setattr__(
+            self,
+            "metadata",
+            MappingProxyType(dict(self.metadata)),
+        )
+
+======================
+targ/chunk_metadata.py
+======================
+"""
+chunk_metadata.py
+
+Deterministic metadata generation for corpus chunks.
+"""
+
+from __future__ import annotations 
+
+from types import MappingProxyType 
+from typing import Any, Mapping 
+
+class ChunkMetadata: 
+
+    """
+    Utility for constructing deterministic chunk metadata.
+    """
+
+    @staticmethod 
+    def chunk_id(
+        *, 
+        source: str, 
+        page: int, 
+        chunk_index: int, 
+    ) -> str: 
+        
+        return(
+            f"{source}"
+            f"_p{page:03d}"
+            f"_c{chunk_index:03d}"
+        )
+    
+    @classmethod 
+    def build(
+        cls,
+        *, 
+        source: str, 
+        page: int, 
+        chunk_index: int,
+        extra: Mapping[str, Any] | None = None, 
+    ) -> Mapping[str, Any]:
+        
+        metadata = {
+            "id": cls.chunk_id(
+                source=source, 
+                page=page, 
+                chunk_index=chunk_index,
+            ),
+            "source": source, 
+            "page": page, 
+            "chunk": chunk_index,
+        }
+
+        if extra is not None: 
+            metadata.update(extra)
+
+        return MappingProxyType(metadata)
+
+============================
+targ/vector_store_builder.py
+============================
+"""
+vector_store_builder.py
+
+Deterministic construction of the vector store used by the TARG
+reproduction.
+
+Responsibilities
+----------------
+* Validate builder configuration
+* Convert immutable Chunk objects into LangChain Documents.
+* Construct the configured vector store.
+* Return the initialized vector store. 
+
+The VectorStoreBuilder NEVER:
+
+* Reads PDFs.
+* Chunks documents.
+* Performs retrieval.
+* Generates answers.
+* Reranks retrieved documents.
+
+Author:
+Retrieval as a Decision (TARG) Reproduction
+"""
+
+from __future__ import annotations 
+
+from collections.abc import Iterable 
+
+from langchain_core.documents import Document 
+from langchain_core.embeddings import Embeddings 
+from langchain_core.vectorstores import VectorStore 
+
+from corpus_models import Chunk 
+
+class VectorStoreBuilder:
+    """
+    Deterministic builder for LangChain vector stores.
+    """
+
+    def __init__(
+        self,
+        *,
+        embedding_model: Embeddings, 
+        vector_store_class: type[VectorStore],
+    ) -> None: 
+        
+        self.embedding_model = embedding_model
+        self.vector_store_class = vector_store_class
+
+        self._validate_constructor()
+
+    # --------------------------------------------------
+    # Public API
+    # --------------------------------------------------
+
+    def build(
+        self,
+        chunks: Iterable[Chunk],
+    ) -> VectorStore:
+        raise NotImplementedError 
+    
+    def _build_documents(
+        self, 
+        chunks: Iterable[Chunk],
+    ) -> tuple[Document, ...]:
+        raise NotImplementedError 
+    
+    def _build_vector_store(
+        self,
+        documents: tuple[Document, ...],
+    ) -> VectorStore: 
+        raise NotImplementedError 
+    
+    # ---------------------------------------------------
+    # Validation
+    # ---------------------------------------------------
+
+    def _validate_constructor(
+        self,
+    ) -> None: 
+        raise NotImplementedError 
+    
+    def _validate_chunks(
+        self, 
+        chunks: Iterable[Chunk],
+    ) -> tuple[Chunk, ...]:
+        raise NotImplementedError
+
+============================
+targ/corpus/corpus_models.py
+============================
+"""
+corpus_models.py
+
+Immutable document and chunk models used during corpus preprocessing.
+"""
+
+from __future__ import annotations 
+
+from dataclasses import dataclass, field 
+from types import MappingProxyType 
+from typing import Any, Mapping 
+
+@dataclass(frozen=True, slots=True)
+class CorpusDocument:
+    source: str 
+    page: int 
+    text: str 
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.source, str):
+            raise TypeError("source must be a string.")
+        
+        if not self.source.strip():
+            raise ValueError("source must not be empty.")
+        
+        if not isinstance(self.page, int):
+            raise TypeError("page must be an integer.")
+        
+        if self.page <= 0:
+            raise ValueError("page must be positive.")
+        
+        if not isinstance(self.text, str):
+            raise TypeError("text must be a string.")
+        
+        if not self.text.strip():
+            raise ValueError("text must not be empty.")
+        
+        if not isinstance(self.metadata, Mapping):
+            raise TypeError("metadata must be a mapping.")
+        
+        object.__setattr__(
+            self,
+            "metadata",
+            MappingProxyType(dict(self.metadata)),
+        )
+
+@dataclass(frozen=True, slots=True)
+class Chunk:
+    id: str 
+    source: str 
+    page: int 
+    chunk_index: int 
+    text: str 
+    metadata: Mapping[str, Any]
+
+    def __post_init__(self) -> None: 
+        if not isinstance(self.id, str):
+            raise TypeError("id must be a string.")
+        
+        if not self.id.strip():
+            raise ValueError("id must not be empty.")
+        
+        if not isinstance(self.source, str):
+            raise TypeError("source must be a string.")
+        
+        if not self.source.strip():
+            raise ValueError("source must not be empty.")
+        
+        if not isinstance(self.page, int):
+            raise TypeError("page must be an integer.")
+        
+        if self.page <= 0:
+            raise ValueError("page must be positive.")
+        
+        if not isinstance(self.chunk_index, int):
+            raise TypeError("chunk_index must be an integer.")
+        
+        if self.chunk_index < 0:
+            raise ValueError("chunk_index cannot be negative.")
+        
+        if not isinstance(self.text, str):
+            raise TypeError("text must be a string.")
+        
+        if not self.text.strip():
+            raise ValueError("text must not be empty.")
+        
+        if not isinstance(self.metadata, Mapping):
+            raise TypeError("metadata must be a mapping.")
+        
+        object.__setattr__(
+            self,
+            "metadata",
+            MappingProxyType(dict(self.metadata)),
+        )
+
+====================================
+targ/corpus/representative_corpus.py
+====================================
+"""
+representative_corpus.py
+
+Loads the authoritative PDF corpus into immutable CorpusDocument
+objects.
+
+Responsibilities
+----------------
+* Validate the corpus directory.
+* Discover PDF files. 
+* Extract page text.
+* Construct CorpusDocument objects.
+* Return a deterministic ordering.
+
+Never: 
+
+* chunks documents
+* embeds documents 
+* creates vector stores 
+* performs retrieval
+
+Author: 
+Retrieval as a Decision (TARG) Reproduction
+"""
+
+from __future__ import annotations 
+
+from pathlib import Path
+from typing import Sequence 
+
+from pypdf import PdfReader 
+
+from corpus.corpus_models import CorpusDocument 
+
+class RepresentativeCorpusBuilder:
+
+    def __init__(
+        self,
+        *,
+        pdf_directory: Path,
+    ) -> None: 
+        
+        self.pdf_directory = pdf_directory 
+
+        self._validate_directory()
+
+    # -------------------------------------------
+    # Public API
+    # -------------------------------------------
+
+    def build(
+        self,
+    ) -> tuple[CorpusDocument, ...]:
+        
+        documents: list[CorpusDocument] = []
+
+        for pdf_path in self._discover_pdfs():
+
+            documents.extend(
+                self._load_pdf(pdf_path)
+            )
+
+        return self._sort_documents(
+            documents
+        )
+    
+    # ------------------------------------------------------
+    # Validation
+    # ------------------------------------------------------
+
+    def _validate_directory(
+        self,
+    ) -> None:
+        
+        if not isinstance(
+            self.pdf_directory,
+            Path,
+        ): 
+            raise TypeError(
+                "pdf_directory must be a pathlib.Path."
+            )
+        
+        if not self.pdf_directory.exists():
+            raise FileNotFoundError(
+                f"{self.pdf_directory} does not exist."
+            )
+        
+        if not self.pdf_directory.is_dir():
+            raise NotADirectoryError(
+                f"{self.pdf_directory} is not a directory."
+            )
+        
+    # ----------------------------------------------------------------
+    # Discovery
+    # ----------------------------------------------------------------
+
+    def _discover_pdfs(
+        self,
+    ) -> tuple[Path, ...]:
+        
+        return tuple(
+            sorted(
+                self.pdf_directory.glob("*.pdf")
+            )
+        )
+    
+    # ----------------------------------------------------------------
+    # Loading
+    # ----------------------------------------------------------------
+
+    def _load_pdf(
+        self,
+        pdf_path: Path, 
+    ) -> tuple[CorpusDocument, ...]:
+        
+        reader = PdfReader(pdf_path)
+
+        documents = []
+
+        for page_number, page in enumerate(
+            reader.pages,
+            start=1,
+        ):
+            
+            text = page.extract_text()
+
+            if text is None:
+                continue 
+
+            text = text.strip()
+
+            if not text:
+                continue 
+
+            documents.append(
+                self._build_document(
+                    source=pdf_path.stem,
+                    page=page_number,
+                    text=text,
+                )
+            )
+
+        return tuple(documents)
+    
+    # ----------------------------------------------------
+    # Model construction
+    # ----------------------------------------------------
+
+    def _build_document(
+        self,
+        *,
+        source: str,
+        page: int,
+        text: str,
+    ) -> CorpusDocument:
+        
+        return CorpusDocument(
+            source=source,
+            page=page,
+            text=text,
+            metadata={
+                "source": source,
+                "page": page,
+            },
+        )
+    
+    # ------------------------------------------------
+    # Ordering 
+    # ------------------------------------------------
+
+    def _sort_documents(
+        self,
+        documents: Sequence[CorpusDocument],
+    ) -> tuple[CorpusDocument, ...]:
+        
+        return tuple(
+            sorted(
+                documents,
+                key=lambda d: (
+                    d.source,
+                    d.page,
+                ),
+            )
+        )
+

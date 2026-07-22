@@ -86,9 +86,6 @@ class VectorRetriever(BaseRetriever):
             k=top_k,
         )
 
-        for d in docs:
-            print(d.metadata)
-
         return RetrievalResult(
 
             query=query,
