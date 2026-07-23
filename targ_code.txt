@@ -7651,3 +7651,852 @@ class RepresentativeCorpusBuilder:
             )
         )
 
+=================================
+rag/benchmark/benchmark_loader.py
+=================================
+"""
+benchmark_loader.py
+
+Load benchmark queries from JSON. 
+
+Responsibilities
+----------------
+- Read benchmark JSON.
+- Validate JSON structure.
+- Construct immutable Benchmark models.
+
+The BenchmarkLoader does NOT:
+- perform retrieval;
+- compute metrics;
+- modify benchmark data. 
+
+Author: 
+Training-Free Adaptive Retrieval Gating (TARG) Reproduction
+"""
+
+from __future__ import annotations
+
+import json 
+from pathlib import Path 
+from typing import Any 
+
+from benchmark.benchmark_models import (
+    Benchmark, 
+    BenchmarkQuery,
+)
+
+
+class BenchmarkLoader:
+    """
+    Load benchmark queries from disk.
+    """
+
+    def __init__(
+        self,
+        *,
+        benchmark_path: str | Path,
+    ) -> None: 
+        
+        self.benchmark_path = Path(benchmark_path)
+
+        self._validate_constructor()
+
+    # -------------------------------------------------------
+    # Public API
+    # -------------------------------------------------------
+
+    def load(
+        self,
+    ) -> Benchmark: 
+        """
+        Load the benchmark from disk.
+        """
+
+        payload = self._read_json()
+
+        queries = tuple(
+            self._build_query(item)
+            for item in payload 
+        )
+
+        return Benchmark(
+            queries=queries,
+        )
+    
+    # -----------------------------------------------------
+    # JSON
+    # -----------------------------------------------------
+
+    def _read_json(
+        self,
+    ) -> list[dict[str, Any]]:
+        """
+        Read and validate the benchmark JSON.
+        """
+
+        with self.benchmark_path.open(
+            "r",
+            encoding="utf-8",
+        ) as fp:
+            
+            payload = json.load(fp)
+
+        if not isinstance(payload, list):
+            raise TypeError(
+                "Benchmark JSON must contain a list."
+            )
+        
+        if len(payload) == 0:
+            raise ValueError(
+                "Benchmark JSON is empty."
+            )
+        
+        return payload 
+    
+    # ------------------------------------------------------
+    # Model construction
+    # ------------------------------------------------------
+
+    def _build_query(
+        self,
+        item: dict[str, Any],
+    ) -> BenchmarkQuery:
+        """
+        Convert one JSON object into a BenchmarkQuery.
+        """
+
+        if not isinstance(item, dict):
+            raise TypeError(
+                "Each benchmark entry must be an object."
+            )
+        
+        self._validate_fields(item)
+
+        return BenchmarkQuery(
+            question=item["question"],
+            document_id=item["document_id"],
+            section_title=item["section_title"],
+            supporting_pages=tuple(
+                item["supporting_pages"]
+            ),
+            expected_answer_span=item[
+                "expected_answer_span"
+            ],
+            difficulty=item["difficulty"],
+            topic=item["topic"],
+        )
+    
+    # ---------------------------------------------------------
+    # Validation
+    # ---------------------------------------------------------
+
+    def _validate_constructor(
+        self,
+    ) -> None: 
+        
+        if not self.benchmark_path.exists():
+            raise FileNotFoundError(
+                f"Benchmark file not found: "
+                f"{self.benchmark_path}"
+            )
+        
+        if not self.benchamrk_path.is_file():
+            raise ValueError(
+                "benchmark_path must refer to a file."
+            )
+        
+        if self.benchamrk_path.suffix.lower() != ".json":
+            raise ValueError(
+                "Benchmark file must be JSON."
+            )
+        
+    def _validate_fields(
+        self,
+        item: dict[str, Any],
+    ) -> None: 
+        """
+        Validate required fields.
+        """
+
+        required = (
+            "question",
+            "document_id",
+            "section_title",
+            "supporting_pages",
+            "expected_answer_span",
+            "difficulty",
+            "topic",
+        )
+
+        missing = [
+            field 
+            for field in required 
+            if field not in item 
+        ]
+
+        if missing:
+            raise KeyError(
+                "Missing benchmark fields: "
+                + ", ".join(missing)
+            )
+
+=================================
+rag/benchmark/benchmark_models.py
+=================================
+"""
+benchmark_models.py
+
+Immutable benchmark models for retrieval evaluation.
+
+The benchmark defines a deterministic set of questions together with 
+their expected evidence in the authoritative corpus.
+
+Responsibilities
+----------------
+- Represent benchmark queries.
+- Validate benchmark integrity
+- Provide deterministic serialization.
+
+These models do NOT:
+- load benchmark files;
+- perform retrieval;
+- compute evaluation metrics.
+
+Author: 
+Training-Free Adaptive Retrieval Gating (TARG) Reproduction
+"""
+
+from __future__ import annotations 
+
+from dataclasses import asdict 
+from dataclasses import dataclass 
+from typing import Any 
+
+
+# ---------------------------------------------------------
+# Benchmark Query
+# ---------------------------------------------------------
+
+@dataclass(frozen=True, slots=True)
+class BenchmarkQuery:
+    """
+    One benchmark question together with its expected evidence.
+    """
+
+    question: str 
+
+    document_id: str 
+
+    section_title: str 
+
+    supporting_pages: tuple[int, ...]
+
+    expected_answer_span: str 
+
+    difficulty: str 
+
+    topic: str 
+
+    def __post_init__(self) -> None: 
+
+        if not self.question.strip():
+            raise ValueError(
+                "question cannot be empty."
+            )
+        
+        if not self.document_id.strip():
+            raise ValueError(
+                "document_id cannot be empty."
+            )
+        
+        if not self.section_title.strip():
+            raise ValueError(
+                "section_title cannot be empty."
+            )
+        
+        if len(self.supporting_pages) == 0:
+            raise ValueError(
+                "supporting_pages cannot be empty."
+            )
+        
+        for page in self.supporting_pages: 
+
+            if page < 1:
+                raise ValueError(
+                    "supporting_pages must contain positive integers."
+                )
+            
+        if not self.expected_answer_span.strip():
+            raise ValueError(
+                "expected_answer_span cannot be empty."
+            )
+        
+        allowed = {
+            "Easy",
+            "Medium",
+            "Hard",
+        }
+
+        if self.difficulty not in allowed:
+            raise ValueError(
+                f"difficulty must be one of {sorted(allowed)}."
+            )
+        
+        if not self.topic.strip():
+            raise ValueError(
+                "topic cannot be empty."
+            )
+        
+    def to_dict(self) -> dict[str, Any]:
+        """
+        Convert to a JSON-serializable dictionary.
+        """
+
+        data = asdict(self)
+
+        data["supporting_pages"] = list(
+            self.supporting_pages
+        )
+
+        return data 
+    
+
+# --------------------------------------------------------------
+# Benchmark
+# --------------------------------------------------------------
+
+@dataclass(frozen=True, slots=True)
+class Benchmark:
+    """
+    Complete benchmark collection.
+    """
+
+    queries: tuple[BenchmarkQuery, ...]
+
+    def __post_init__(self) -> None: 
+
+        if len(self.queries) == 0:
+            raise ValueError(
+                "Benchmark must contain at least one query."
+            )
+        
+        seen = set()
+
+        for query in self.queries: 
+
+            if not isinstance(
+                query, 
+                BenchmarkQuery,
+            ):
+                raise TypeError(
+                    "queries must contain BenchmarkQuery objects."
+                )
+            
+            key = (
+                query.question,
+                query.document_id,
+            )
+
+            if key in seen:
+                raise ValueError(
+                    "Duplicate benchmark query detected."
+                )
+            
+            seen.add(key)
+
+        
+    def __len__(self) -> int:
+        return len(self.queries)
+    
+    def __iter__(self):
+        return iter(self.queries)
+    
+    def __getitem__(self, index):
+        return self.queries[index]
+    
+    def to_dict(self) -> list[dict[str, Any]]:
+        """
+        Convert to a JSON-serializable list.
+        """
+
+        return [
+            query.to_dict()
+            for query in self.queries
+        ]
+
+=================================
+rag/retrieval/retrieval_models.py
+=================================
+"""
+retrieval_models.py
+
+Immutable data models for retrieval inspection.
+
+These models capture the output of the retrieval stage before any
+manual relevance assessment or metric computation. They provide a 
+deterministic representation of retrieved evidence for each benchmark 
+query. 
+
+Responsibilities
+----------------
+- Represent retrieved chunks.
+- Represent retrieval inspection results.
+- Provide deterministic serialization.
+
+These models do NOT:
+- perform retrieval;
+- compute evaluation metrics;
+- assess relevance.
+
+Author:
+Training-Free Adaptive Retrieval Gating (TARG) Reproduction
+"""
+
+from __future__ import annotations
+
+from dataclasses import asdict
+from dataclasses import dataclass 
+from typing import Any 
+
+# ----------------------------------------------------------
+# Retrieved Chunk
+# ----------------------------------------------------------
+
+@dataclass(frozen=True, slots=True)
+class RetrievedChunk:
+    """
+    One retrieved chunk returned by the vector store.
+    """
+
+    rank: int 
+
+    score: float 
+
+    source: str
+
+    page: int 
+
+    chunk: int 
+
+    chunk_id: str 
+
+    text: str 
+
+    def __post__init__(self) -> None: 
+
+        if self.rank < 1:
+            raise ValueError("rank must be >= 1.")
+        
+        if not isinstance(self.score, (int, float)):
+            raise TypeError("score must be numeric.")
+        
+        if not self.source.strip():
+            raise ValueError("source cannot be empty.")
+        
+        if self.page < 1:
+            raise ValueError("page must be >= 1.")
+        
+        if self.chunk < 0:
+            raise ValueError("chunk must be >= 0.")
+        
+        if not self.chunk_id.strip():
+            raise ValueError("chunk_id cannot be empty.")
+        
+        if not self.text.strip():
+            raise ValueError("text cannot be empty.")
+        
+    def to_dict(self) -> dict[str, Any]:
+        """
+        Convert to a JSON-serialization dictionary.
+        """
+        return asdict(self)
+    
+# -----------------------------------------------------------------------
+# Retrieval Inspection
+# -----------------------------------------------------------------------
+
+@dataclass(frozen=True, slots=True)
+class RetrievalInspection:
+    """
+    Retrieval results for one benchmark query.
+    """
+
+    query: str 
+
+    expected_document: str 
+
+    expected_pages: tuple[int, ...]
+
+    retrieved_chunks: tuple[RetrievedChunk, ...]
+
+    def __post_init__(self) -> None: 
+
+        if not self.query.strip():
+            raise ValueError("query cannot be empty.")
+        
+        if not self.expected_document.strip():
+            raise ValueError("expected_document cannot be empty.")
+        
+        if len(self.expected_pages) == 0:
+            raise ValueError(
+                "expected_pages must contain at least one page."
+            )
+        
+        for page in self.expected_pages:
+
+            if page < 1:
+                raise ValueError(
+                    "expected_pages must contain positive integers."
+                )
+            
+        if len(self.retrieved_chunks) == 0:
+            raise ValueError(
+                "retrieved_chunks cannot be empty."
+            )
+        
+        previous_rank = 0
+
+        for chunk in self.retrieved_chunks:
+
+            if not isinstance(chunk, RetrievedChunk):
+                raise TypeError(
+                    "retrieved_chunks must contain RetrievedChunk objects."
+                )
+            
+            if chunk.rank <= previous_rank:
+                raise ValueError(
+                    "Retrieved chunk ranks must be strictly increasing."
+                )
+            
+            previous_rank = chunk.rank
+
+    def to_dict(self) -> dict[str, Any]:
+        """
+        Convert to a JSON-serializable dictionary.
+        """
+
+        return {
+            "query": self.query,
+            "expected_document": self.expected_document,
+            "expected_pages": list(self.expected_pages),
+            "retrieved_chunks": [
+                chunk.to_dict()
+                for chunk in self.retrieved_chunks
+            ]
+        }
+
+====================================
+rag/retrieval/retrieval_inspector.py
+====================================
+"""
+retrieval_inspector.py
+
+Retrieval inspection for TARG reproduction.
+
+The RetrievalInspector executes a benchmark query against a vector store
+and records the retrieved evidence without performing any evaluation.
+
+Responsibilities
+----------------
+- Execute similarity search.
+- Preserve retrieval rank.
+- Preserve retrieval metadata.
+- Build immutable RetrievalInspection objects.
+
+The RetrievalInspection does NOT:
+- compute retrieval metrics;
+- assess relevance;
+- compare against ground truth;
+- load benchmark datasets.
+
+Author:
+Training-Free Adaptive Retrieval Gating (TARG) Reproduction
+"""
+
+from __future__ import annotations 
+
+from langchain_core.vectorstores import VectorStore 
+
+from benchmark.benchmark_models import BenchmarkQuery
+
+from retrieval.retrieval_models import (
+    RetrievedChunk,
+    RetrievalInspection,
+)
+
+class RetrievalInspector:
+    """
+    Executes benchmark queries against a vector store.
+    """
+
+    def __init__(
+        self,
+        *,
+        vector_store: VectorStore, 
+        top_k: int = 5,
+    ) -> None: 
+        
+        self.vector_store = vector_store 
+        self.top_k = top_k 
+
+        self._validate_constructor()
+
+    # ------------------------------------------------
+    # Public API
+    # ------------------------------------------------
+
+    def inspect(
+        self,
+        benchmark_query: BenchmarkQuery,
+    ) -> RetrievalInspection:
+        """
+        Retrieve the top-k chunks for a benchmark query.
+        """
+
+        if not isinstance(benchmark_query, BenchmarkQuery):
+            raise TypeError(
+                "benchmark_query must be a BenchmarkQuery."
+            )
+        
+        documents = self._retrieve(
+            benchmark_query.question,
+        )
+
+        retrieved_chunks = tuple(
+            self._build_chunk(
+                rank=i,
+                document=document,
+            )
+            for i, document in enumerate(
+                documents,
+                start=1,
+            )
+        )
+
+        return RetrievalInspection(
+            query=benchmark_query.question,
+            expected_document=benchmark_query.document_id,
+            expected_pages=tuple(
+                benchmark_query.supporting_pages
+            ),
+            retrieved_chunks=retrieved_chunks,
+        )
+    
+    # -------------------------------------------------------
+    # Retrieval
+    # -------------------------------------------------------
+
+    def _retrieve(
+        self,
+        query: str,
+    ):
+        """
+        Execute similarity search.
+        """
+
+        return self.vector_store.similarity_search_with_score(
+            query=query,
+            k=self.top_k,
+        )
+    
+    # -------------------------------------------------------
+    # Conversion
+    # -------------------------------------------------------
+
+    def _build_chunk(
+        self,
+        *,
+        rank: int, 
+        document,
+    ) -> RetrievedChunk:
+        """
+        Convert a LangChain retrieval result into RetrievedChunk.
+        """
+
+        doc, score = document 
+
+        metadata = doc.metadata 
+
+        return RetrievedChunk(
+            rank=rank,
+            score=float(score),
+            source=metadata["source"],
+            page=metadata["page"],
+            chunk=metadata["chunk"],
+            chunk_id=metadata["id"],
+            text=doc.page_content,
+        )
+    
+    # --------------------------------------------------------
+    # Validation
+    # --------------------------------------------------------
+
+    def _validate_constructor(
+        self,
+    ) -> None:
+        
+        if self.vector_store is None:
+            raise TypeError(
+                "vector_store cannot be None."
+            )
+        
+        if not isinstance(
+            self.vector_store,
+            VectorStore,
+        ):
+            raise TypeError(
+                "vector_store must inherit from VectorStore."
+            )
+        
+        if not isinstance(
+            self.top_k,
+            int,
+        ):
+            raise TypeError(
+                "top_k must be an integer."
+            )
+        
+        if self.top_k < 1:
+            raise ValueError(
+                "top_k must be at least 1."
+            )
+
+=================================
+rag/retrieval/retrieval_runner.py
+=================================
+"""
+retrieval_runner.py
+
+Run retrieval inspection for all benchmark queries.
+
+Responsibilities
+----------------
+- Iterate over benchmark queries.
+- Invoke RetrievalInspector.
+- Collect RetrievalInspection objects.
+- Persist retrieval results.
+
+The RetrievalRunner does NOT:
+- perform retrieval;
+- compute retrieval metrics;
+- assess relevance. 
+
+Author:
+Training-Free Adaptive Retrieval Gating (TARG) Reproduction
+"""
+
+from __future__ import annotations 
+
+import json
+from pathlib import Path 
+
+from benchmark.benchmark_loader import BenchmarkLoader 
+from retrieval.retrieval_inspector import RetrievalInspector
+from retrieval.retrieval_models import RetrievalInspection 
+
+class RetrievalRunner:
+    """
+    Orchestrates retrieval inspection over the benchmark.
+    """
+
+    def __init__(
+        self,
+        *,
+        benchmark_loader: BenchmarkLoader,
+        retrieval_inspector: RetrievalInspector,
+    ) -> None: 
+        
+        self.benchmark_loader = benchmark_loader 
+        self.retrieval_inspector = retrieval_inspector
+
+        self._validate_constructor()
+
+    # ----------------------------------------------------
+    # Public API
+    # ----------------------------------------------------
+
+    def run(
+        self,
+    ) -> tuple[RetrievalInspection, ...]:
+        """
+        Run retrieval inspection over the benchmark.
+        """
+
+        benchmark = self.benchmark_loader.load()
+
+        inspections = tuple(
+            self.retrieval_inspector.inspect(query)
+            for query in benchmark 
+        )
+
+        return inspections 
+    
+    def run_and_save(
+        self,
+        output_path: str | Path,
+    ) -> tuple[RetrievalInspection, ...]:
+        """
+        Run retrieval inspection and save results.
+        """
+
+        inspections = self.run()
+
+        self.save(
+            inspections=inspections,
+            output_path=output_path,
+        )
+
+        return inspections 
+    
+    # --------------------------------------------------
+    # Persistence
+    # --------------------------------------------------
+
+    def save(
+        self,
+        *,
+        inspections: tuple[RetrievalInspection, ...],
+        output_path: str | Path,
+    ) -> None: 
+        
+        output_path = Path(output_path)
+
+        output_path.parent.mkdir(
+            parents=True,
+            exist_ok=True, 
+        )
+
+        payload = [
+            inspection.to_dict()
+            for inspection in inspections
+        ]
+
+        with output_path.open(
+            "w",
+            encoding="utf-8",
+        ) as fp:
+            
+            json.dump(
+                payload, 
+                fp,
+                indent=2,
+                ensure_ascii=False,
+            )
+
+    # --------------------------------------------------
+    # Validation
+    # --------------------------------------------------
+
+    def _validate_constructor(
+        self,
+    ) -> None: 
+        
+        if self.benchmark_loader is None:
+            raise TypeError(
+                "benchmark_loader cannot be None."
+            )
+        
+        if self.retrieval_inspector is None:
+            raise TypeError(
+                "retrieval_inspector cannot be None."
+            )

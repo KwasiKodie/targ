@@ -1,37 +1,45 @@
-python -m tests.retrieval_verification
-/home/kwasi/targ/tests/retrieval_verification.py:1: DeprecationWarning: `langchain-community` is being sunset and is no longer actively maintained. See https://github.com/langchain-ai/langchain-community/issues/674 for details and migration guidance toward standalone integration packages.
+python run_retrieval_benchmark.py
+/home/kwasi/targ/run_retrieval_benchmark.py:5: DeprecationWarning: `langchain-community` is being sunset and is no longer actively maintained. See https://github.com/langchain-ai/langchain-community/issues/674 for details and migration guidance toward standalone integration packages.
   from langchain_community.vectorstores import FAISS
-Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
-Loading weights: 100%|█| 199/199 [00:00<00:0
-
-Result 1
-{'id': 'rag_survey_p001_c000', 'source': 'rag_survey', 'page': 1, 'chunk': 0}
-A Comprehensive Survey of Retrieval-Augmented Generation (RAG): Evolution, CurrentLandscapeandFutureDirections
-ShailjaGupta(CarnegieMellonUniversity, USA)RajeshRanjan(CarnegieMellonUniversity, USA)SuryaNarayanSingh(BITSindri, India)
-Abstract
-This paper presents a comprehensive study of Retrieval-Aug
-
-Result 2
-{'id': 'rag_survey_p002_c002', 'source': 'rag_survey', 'page': 2, 'chunk': 2}
-there is a gapinasufficient surveyof thisspacetrackingtheevolutionandrecent changesinthisspace. Thecurrent surveyintendstofill thisgap.
-1.2Overviewof Retrieval-AugmentedGeneration(RAG)
-Retrieval-Augmented Generation (RAG) is an emerging hybrid architecture designed to address thelimitations of pure 
-
-Result 3
-{'id': 'rag_survey_p010_c002', 'source': 'rag_survey', 'page': 10, 'chunk': 2}
--centric Retrieval-Augmented Generation (RAG) workflowadvances beyond the traditional retrieve-then-read mode and employs aprepare-then-rewrite-then-retrieve-then-read framework, enhancing LLMs by integrating contextuallyrelevant, time-critical, or domain-specific information. Key innovations includ
-
-Result 4
-{'id': 'targ_p002_c004', 'source': 'targ', 'page': 2, 'chunk': 4}
- by the gate.
-2 Related Work
-Retrieval-augmented generation (RAG).RAG couples parametric generators with non-parametric
-memory to improve factuality on knowledge-intensive tasks. For example, REALM exposes external knowl-
-edge during pretraining via a differentiable retriever (Guu et al., 2020); RAG
-
-Result 5
-{'id': 'self_rag_p001_c003', 'source': 'self_rag', 'page': 1, 'chunk': 3}
-y trained to leverage and follow facts from provided passages. This
-work introduces Self-Reflective Retrieval-augmented Generation ( SELF -R AG) to improve an
-LLM’s generation quality, including its factual accuracy without hurting its versatility, via on-demand
-retrieval and self-reflection. We tra
+Traceback (most recent call last):
+  File "/home/kwasi/targ/run_retrieval_benchmark.py", line 93, in <module>
+    main()
+    ~~~~^^
+  File "/home/kwasi/targ/run_retrieval_benchmark.py", line 83, in main
+    inspections = runner.run_and_save(
+        output_path="retrieval/retrieval_results.json",
+    )
+  File "/home/kwasi/targ/retrieval/retrieval_runner.py", line 76, in run_and_save
+    inspections = self.run()
+  File "/home/kwasi/targ/retrieval/retrieval_runner.py", line 61, in run
+    inspections = tuple(
+                  ^^^^^
+  File "/home/kwasi/targ/retrieval/retrieval_runner.py", line 62, in <genexpr>
+    self.retrieval_inspector.inspect(query)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "/home/kwasi/targ/retrieval/retrieval_inspector.py", line 71, in inspect
+    documents = self._retrieve(
+        benchmark_query.question,
+    )
+  File "/home/kwasi/targ/retrieval/retrieval_inspector.py", line 107, in _retrieve
+    return self.vector_store.similarity_search_with_score(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        query=query,
+        ^^^^^^^^^^^^
+        k=self.top_k,
+        ^^^^^^^^^^^^^
+    )
+    ^
+  File "/home/kwasi/targ/.venv/lib/python3.14/site-packages/langchain_community/vectorstores/faiss.py", line 516, in similarity_search_with_score
+    docs = self.similarity_search_with_score_by_vector(
+        embedding,
+    ...<3 lines>...
+        **kwargs,
+    )
+  File "/home/kwasi/targ/.venv/lib/python3.14/site-packages/langchain_community/vectorstores/faiss.py", line 417, in similarity_search_with_score_by_vector
+    scores, indices = self.index.search(vector, k if filter is None else fetch_k)
+                      ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/kwasi/targ/.venv/lib/python3.14/site-packages/faiss/class_wrappers.py", line 437, in replacement_search
+    assert d == self.d
+           ^^^^^^^^^^^
+AssertionError
