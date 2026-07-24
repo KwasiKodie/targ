@@ -1,1733 +1,1107 @@
 [
   {
-    "benchmark_id": "adaptive_rag_001",
     "question": "What limitation of existing retrieval-augmented large language models motivates Adaptive-RAG?",
-    "expected_sources": [
-      "adaptive_rag.pdf"
-    ],
+    "document_id": "adaptive_rag",
     "section_title": "Abstract",
-    "supporting_pages": [
-      1
-    ],
+    "supporting_pages": [1],
     "expected_answer_span": "However, even though there are various approaches dealing with queries of different complexities, they either handle simple queries with unnecessary computational overhead or fail to adequately address complex multi-step queries; yet, not all user requests fall into only one of the simple or complex categories.",
     "difficulty": "Easy",
     "topic": "Motivation"
   },
   {
-    "benchmark_id": "adaptive_rag_002",
     "question": "What is the main objective of the Adaptive-RAG framework?",
-    "expected_sources": [
-      "adaptive_rag.pdf"
-    ],
+    "document_id": "adaptive_rag",
     "section_title": "Abstract",
-    "supporting_pages": [
-      1
-    ],
+    "supporting_pages": [1],
     "expected_answer_span": "We propose a novel adaptive QA framework that can dynamically select the most suitable strategy for (retrieval-augmented) LLMs from the simplest to the most sophisticated ones based on the query complexity.",
     "difficulty": "Easy",
     "topic": "Framework Overview"
   },
   {
-    "benchmark_id": "adaptive_rag_003",
     "question": "What are the three principal contributions of Adaptive-RAG?",
-    "expected_sources": [
-      "adaptive_rag.pdf"
-    ],
+    "document_id": "adaptive_rag",
     "section_title": "Introduction",
-    "supporting_pages": [
-      3
-    ],
+    "supporting_pages": [3],
     "expected_answer_span": "Our contributions and findings are threefold: • We point out the realistic scenario of queries of varying complexities... • We adapt retrieval-augmented LLMs to the query complexity assessed by the classifier... • We show that our Adaptive-RAG is highly effective and efficient, balancing between the complexity and the simplicity for diverse queries.",
     "difficulty": "Medium",
     "topic": "Contributions"
   },
   {
-    "benchmark_id": "adaptive_rag_004",
     "question": "According to the paper, what two modules generally make up an open-domain question answering system?",
-    "expected_sources": [
-      "adaptive_rag.pdf"
-    ],
+    "document_id": "adaptive_rag",
     "section_title": "Related Work - Open-domain QA",
-    "supporting_pages": [
-      3
-    ],
+    "supporting_pages": [3],
     "expected_answer_span": "Open-domain QA ... generally involves two modules: a retriever ... and a reader.",
     "difficulty": "Easy",
     "topic": "Open-domain QA"
   },
   {
-    "benchmark_id": "adaptive_rag_005",
     "question": "How does the paper formally represent non-retrieval question answering?",
-    "expected_sources": [
-      "adaptive_rag.pdf"
-    ],
+    "document_id": "adaptive_rag",
     "section_title": "Method - Preliminaries",
-    "supporting_pages": [
-      4
-    ],
+    "supporting_pages": [4],
     "expected_answer_span": "The most naïve LLM-powered QA model can be represented as follows: ā = LLM(q).",
     "difficulty": "Easy",
     "topic": "Method"
   },
   {
-    "benchmark_id": "adaptive_rag_006",
     "question": "Why is the non-retrieval approach considered suitable only for easy queries?",
-    "expected_sources": [
-      "adaptive_rag.pdf"
-    ],
+    "document_id": "adaptive_rag",
     "section_title": "Method - Preliminaries",
-    "supporting_pages": [
-      4
-    ],
+    "supporting_pages": [4],
     "expected_answer_span": "This non-retrieval-based QA method is highly efficient and could be a somewhat promising approach to handling easy queries... However, this approach is largely problematic on queries that require precise knowledge or complex reasoning.",
     "difficulty": "Medium",
     "topic": "Method"
   },
   {
-    "benchmark_id": "adaptive_rag_007",
     "question": "Why does Adaptive-RAG determine query complexity before attempting to answer a question?",
-    "expected_sources": [
-      "adaptive_rag.pdf"
-    ],
+    "document_id": "adaptive_rag",
     "section_title": "Method",
-    "supporting_pages": [
-      5
-    ],
+    "supporting_pages": [5],
     "expected_answer_span": "Our adaptive framework is designed to dynamically adjust the query-handling strategy of retrieval-augmented LLMs, which is achieved by determining the complexity of each query before attempting a solution.",
     "difficulty": "Easy",
     "topic": "Adaptive Retrieval"
   },
   {
-    "benchmark_id": "adaptive_rag_008",
     "question": "What range of retrieval strategies does Adaptive-RAG provide?",
-    "expected_sources": [
-      "adaptive_rag.pdf"
-    ],
+    "document_id": "adaptive_rag",
     "section_title": "Method",
-    "supporting_pages": [
-      5
-    ],
+    "supporting_pages": [5],
     "expected_answer_span": "This framework can offer a robust middle ground with a range of solutions, from the simplest approach for the most straightforward queries, to the one-step approach for moderate queries, and up to the most comprehensive and rigorous approach for complex queries.",
     "difficulty": "Medium",
     "topic": "Adaptive Retrieval"
   },
   {
-    "benchmark_id": "adaptive_rag_009",
     "question": "What evidence does the paper provide that Adaptive-RAG improves classifier performance?",
-    "expected_sources": [
-      "adaptive_rag.pdf"
-    ],
+    "document_id": "adaptive_rag",
     "section_title": "Classifier Performance",
-    "supporting_pages": [
-      8
-    ],
+    "supporting_pages": [8],
     "expected_answer_span": "The classification accuracy of our Adaptive-RAG is better than those of the other adaptive retrieval baselines, which leads to overall QA performance improvements.",
     "difficulty": "Medium",
     "topic": "Classifier Analysis"
   },
   {
-    "benchmark_id": "adaptive_rag_010",
     "question": "What ethical concern do the authors identify for retrieval-augmented language models?",
-    "expected_sources": [
-      "adaptive_rag.pdf"
-    ],
+    "document_id": "adaptive_rag",
     "section_title": "Ethics Statement",
-    "supporting_pages": [
-      10
-    ],
+    "supporting_pages": [10],
     "expected_answer_span": "We should be aware that such inputs could lead to the retrieval of offensive documents and the generation of inappropriate responses by the retrieval-augmented LLMs.",
     "difficulty": "Easy",
     "topic": "Ethics"
   },
   {
-    "benchmark_id": "coala_001",
     "question": "What problem does the CoALA framework aim to address in language agent research?",
-    "expected_sources": [
-      "coala.pdf"
-    ],
+    "document_id": "coala",
     "section_title": "Abstract",
-    "supporting_pages": [
-      1
-    ],
+    "supporting_pages": [1],
     "expected_answer_span": "While these agents have achieved substantial empirical success, we lack a framework to organize existing agents and plan future developments.",
     "difficulty": "Easy",
     "topic": "Motivation"
   },
   {
-    "benchmark_id": "coala_002",
     "question": "What is CoALA?",
-    "expected_sources": [
-      "coala.pdf"
-    ],
+    "document_id": "coala",
     "section_title": "Abstract",
-    "supporting_pages": [
-      1
-    ],
+    "supporting_pages": [1],
     "expected_answer_span": "Cognitive Architectures for Language Agents (CoALA). CoALA describes a language agent with modular memory components, a structured action space to interact with internal memory and external environments, and a generalized decision-making process to choose actions.",
     "difficulty": "Easy",
     "topic": "Framework Overview"
   },
   {
-    "benchmark_id": "coala_003",
     "question": "According to the paper, what three key dimensions are used to organize language agents in CoALA?",
-    "expected_sources": [
-      "coala.pdf"
-    ],
+    "document_id": "coala",
     "section_title": "Introduction",
-    "supporting_pages": [
-      2
-    ],
+    "supporting_pages": [2],
     "expected_answer_span": "CoALA organizes agents along three key dimensions: their information storage (divided into working and long-term memories); their action space (divided into internal and external actions); and their decision-making procedure.",
     "difficulty": "Easy",
     "topic": "Architecture"
   },
   {
-    "benchmark_id": "coala_004",
     "question": "What analogy does the paper draw between production systems and large language models?",
-    "expected_sources": [
-      "coala.pdf"
-    ],
+    "document_id": "coala",
     "section_title": "Introduction",
-    "supporting_pages": [
-      2
-    ],
+    "supporting_pages": [2],
     "expected_answer_span": "Just as productions indicate possible ways to modify strings, LLMs define a distribution over changes or additions to text.",
     "difficulty": "Medium",
     "topic": "Theoretical Foundations"
   },
   {
-    "benchmark_id": "coala_005",
     "question": "What are production systems?",
-    "expected_sources": [
-      "coala.pdf"
-    ],
+    "document_id": "coala",
     "section_title": "Production Systems for String Manipulation",
-    "supporting_pages": [
-      3
-    ],
+    "supporting_pages": [3],
     "expected_answer_span": "Production systems consist of a set of rules, each specifying a precondition and an action. When the precondition is met, the action can be taken.",
     "difficulty": "Easy",
     "topic": "Production Systems"
   },
   {
-    "benchmark_id": "coala_006",
     "question": "According to the paper, how do production systems become algorithms?",
-    "expected_sources": [
-      "coala.pdf"
-    ],
+    "document_id": "coala",
     "section_title": "Control Flow",
-    "supporting_pages": [
-      3
-    ],
+    "supporting_pages": [3],
     "expected_answer_span": "They can be used to specify algorithms if we impose control flow to determine which productions are executed.",
     "difficulty": "Medium",
     "topic": "Control Flow"
   },
   {
-    "benchmark_id": "coala_007",
     "question": "What three types of long-term memory are described in the Soar cognitive architecture?",
-    "expected_sources": [
-      "coala.pdf"
-    ],
+    "document_id": "coala",
     "section_title": "Cognitive Architectures",
-    "supporting_pages": [
-      4
-    ],
+    "supporting_pages": [4],
     "expected_answer_span": "Long term memory is divided into three distinct types. Procedural memory stores the production system itself. Semantic memory stores facts about the world, while episodic memory stores sequences of the agent's past behaviors.",
     "difficulty": "Easy",
     "topic": "Long-term Memory"
   },
   {
-    "benchmark_id": "coala_008",
     "question": "What information is stored in working memory according to the Soar architecture?",
-    "expected_sources": [
-      "coala.pdf"
-    ],
+    "document_id": "coala",
     "section_title": "Cognitive Architectures",
-    "supporting_pages": [
-      4
-    ],
+    "supporting_pages": [4],
     "expected_answer_span": "Working memory reflects the agent's current circumstances: it stores the agent's recent perceptual input, goals, and results from intermediate, internal reasoning.",
     "difficulty": "Easy",
     "topic": "Working Memory"
   },
   {
-    "benchmark_id": "coala_009",
     "question": "How does Soar select actions during a decision cycle?",
-    "expected_sources": [
-      "coala.pdf"
-    ],
+    "document_id": "coala",
     "section_title": "Decision Making",
-    "supporting_pages": [
-      5
-    ],
+    "supporting_pages": [5],
     "expected_answer_span": "During each decision cycle, their preconditions are checked against the agent's working memory. In the proposal and evaluation phase, a set of productions is used to generate and rank a candidate set of possible actions. The best action is then chosen.",
     "difficulty": "Medium",
     "topic": "Decision Making"
   },
   {
-    "benchmark_id": "coala_010",
     "question": "What four major forms of learning are supported by the Soar architecture?",
-    "expected_sources": [
-      "coala.pdf"
-    ],
+    "document_id": "coala",
     "section_title": "Learning",
-    "supporting_pages": [
-      5
-    ],
+    "supporting_pages": [5],
     "expected_answer_span": "Facts can be written to semantic memory, experiences can be written to episodic memory, reinforcement learning can up-weight productions, and Soar is capable of writing new productions into its procedural memory.",
     "difficulty": "Hard",
     "topic": "Learning"
   },
   {
-    "benchmark_id": "coala_011",
     "question": "How does the paper characterize language models from the perspective of production systems?",
-    "expected_sources": [
-      "coala.pdf"
-    ],
+    "document_id": "coala",
     "section_title": "Language Models as Probabilistic Production Systems",
-    "supporting_pages": [
-      6
-    ],
+    "supporting_pages": [6],
     "expected_answer_span": "LLMs can thus be viewed as probabilistic production systems that sample a possible completion each time they are called.",
     "difficulty": "Medium",
     "topic": "LLMs"
   },
   {
-    "benchmark_id": "coala_012",
     "question": "How does the paper describe prompt engineering in terms of production systems?",
-    "expected_sources": [
-      "coala.pdf"
-    ],
+    "document_id": "coala",
     "section_title": "Prompt Engineering as Control Flow",
-    "supporting_pages": [
-      6,
-      7
-    ],
+    "supporting_pages": [6,7],
     "expected_answer_span": "These simple manipulations can themselves be seen as productions, meaning that these methods define a sequence of productions.",
     "difficulty": "Medium",
     "topic": "Prompt Engineering"
   },
   {
-    "benchmark_id": "coala_013",
     "question": "According to CoALA, what four categories of actions can a language agent perform?",
-    "expected_sources": [
-      "coala.pdf"
-    ],
+    "document_id": "coala",
     "section_title": "CoALA Framework",
-    "supporting_pages": [
-      8
-    ],
+    "supporting_pages": [8],
     "expected_answer_span": "Grounding, retrieval, reasoning and learning.",
     "difficulty": "Easy",
     "topic": "Action Space"
   },
   {
-    "benchmark_id": "coala_014",
     "question": "What is the purpose of working memory in the CoALA framework?",
-    "expected_sources": [
-      "coala.pdf"
-    ],
+    "document_id": "coala",
     "section_title": "Memory",
-    "supporting_pages": [
-      9
-    ],
+    "supporting_pages": [9],
     "expected_answer_span": "Working memory maintains active and readily available information as symbolic variables for the current decision cycle.",
     "difficulty": "Easy",
     "topic": "Working Memory"
   },
   {
-    "benchmark_id": "coala_015",
     "question": "How does CoALA define procedural memory?",
-    "expected_sources": [
-      "coala.pdf"
-    ],
+    "document_id": "coala",
     "section_title": "Procedural Memory",
-    "supporting_pages": [
-      10
-    ],
+    "supporting_pages": [10],
     "expected_answer_span": "Language agents contain two forms of procedural memory: implicit knowledge stored in the LLM weights, and explicit knowledge written in the agent's code.",
     "difficulty": "Medium",
     "topic": "Procedural Memory"
   },
   {
-    "benchmark_id": "nist_sp_800_115_001",
     "question": "What is an information security assessment?",
-    "expected_sources": [
-      "nist_sp_800_115.pdf"
-    ],
+    "document_id": "nist_sp_800_115",
     "section_title": "Executive Summary",
-    "supporting_pages": [
-      8
-    ],
+    "supporting_pages": [8],
     "expected_answer_span": "An information security assessment is the process of determining how effectively an entity being assessed meets specific security objectives.",
     "difficulty": "Easy",
     "topic": "Assessment Overview"
   },
   {
-    "benchmark_id": "nist_sp_800_115_002",
     "question": "What are the three assessment methods described by NIST SP 800-115?",
-    "expected_sources": [
-      "nist_sp_800_115.pdf"
-    ],
+    "document_id": "nist_sp_800_115",
     "section_title": "Executive Summary",
-    "supporting_pages": [
-      8
-    ],
+    "supporting_pages": [8],
     "expected_answer_span": "Three types of assessment methods can be used to accomplish this—testing, examination, and interviewing.",
     "difficulty": "Easy",
     "topic": "Assessment Methods"
   },
   {
-    "benchmark_id": "nist_sp_800_115_003",
     "question": "How does the guide define testing?",
-    "expected_sources": [
-      "nist_sp_800_115.pdf"
-    ],
+    "document_id": "nist_sp_800_115",
     "section_title": "Executive Summary",
-    "supporting_pages": [
-      8
-    ],
+    "supporting_pages": [8],
     "expected_answer_span": "Testing is the process of exercising one or more assessment objects under specified conditions to compare actual and expected behaviors.",
     "difficulty": "Easy",
     "topic": "Testing"
   },
   {
-    "benchmark_id": "nist_sp_800_115_004",
     "question": "How does the guide define examination?",
-    "expected_sources": [
-      "nist_sp_800_115.pdf"
-    ],
+    "document_id": "nist_sp_800_115",
     "section_title": "Executive Summary",
-    "supporting_pages": [
-      8
-    ],
+    "supporting_pages": [8],
     "expected_answer_span": "Examination is the process of checking, inspecting, reviewing, observing, studying, or analyzing one or more assessment objects to facilitate understanding, achieve clarification, or obtain evidence.",
     "difficulty": "Easy",
     "topic": "Examination"
   },
   {
-    "benchmark_id": "nist_sp_800_115_005",
     "question": "How does the guide define interviewing?",
-    "expected_sources": [
-      "nist_sp_800_115.pdf"
-    ],
+    "document_id": "nist_sp_800_115",
     "section_title": "Executive Summary",
-    "supporting_pages": [
-      8
-    ],
+    "supporting_pages": [8],
     "expected_answer_span": "Interviewing is the process of conducting discussions with individuals or groups within an organization to facilitate understanding, achieve clarification, or identify the location of evidence.",
     "difficulty": "Easy",
     "topic": "Interviewing"
   },
   {
-    "benchmark_id": "nist_sp_800_115_006",
     "question": "According to NIST SP 800-115, what activities enable organizations to safely execute technical information security assessments?",
-    "expected_sources": [
-      "nist_sp_800_115.pdf"
-    ],
+    "document_id": "nist_sp_800_115",
     "section_title": "Executive Summary",
-    "supporting_pages": [
-      8
-    ],
+    "supporting_pages": [8],
     "expected_answer_span": "Safely and effectively execute a technical information security assessment using the presented methods and techniques, and respond to any incidents that may occur during the assessment.",
     "difficulty": "Medium",
     "topic": "Assessment Execution"
   },
   {
-    "benchmark_id": "nist_sp_800_115_007",
     "question": "What does NIST recommend organizations establish before conducting technical security assessments?",
-    "expected_sources": [
-      "nist_sp_800_115.pdf"
-    ],
+    "document_id": "nist_sp_800_115",
     "section_title": "Executive Summary",
-    "supporting_pages": [
-      9
-    ],
+    "supporting_pages": [9],
     "expected_answer_span": "Establish an information security assessment policy.",
     "difficulty": "Easy",
     "topic": "Assessment Policy"
   },
   {
-    "benchmark_id": "nist_sp_800_115_008",
     "question": "Why does NIST recommend implementing a repeatable and documented assessment methodology?",
-    "expected_sources": [
-      "nist_sp_800_115.pdf"
-    ],
+    "document_id": "nist_sp_800_115",
     "section_title": "Executive Summary",
-    "supporting_pages": [
-      9
-    ],
+    "supporting_pages": [9],
     "expected_answer_span": "It provides consistency and structure to assessments, expedites the transition of new assessment staff, and addresses resource constraints associated with assessments.",
     "difficulty": "Medium",
     "topic": "Assessment Methodology"
   },
   {
-    "benchmark_id": "nist_sp_800_115_009",
     "question": "According to NIST, why should organizations tailor each security assessment?",
-    "expected_sources": [
-      "nist_sp_800_115.pdf"
-    ],
+    "document_id": "nist_sp_800_115",
     "section_title": "Executive Summary",
-    "supporting_pages": [
-      9
-    ],
+    "supporting_pages": [9],
     "expected_answer_span": "Security assessments have specific objectives, acceptable levels of risk, and available resources.",
     "difficulty": "Medium",
     "topic": "Assessment Planning"
   },
   {
-    "benchmark_id": "nist_sp_800_115_010",
     "question": "Why should organizations perform root cause analysis after an assessment?",
-    "expected_sources": [
-      "nist_sp_800_115.pdf"
-    ],
+    "document_id": "nist_sp_800_115",
     "section_title": "Executive Summary",
-    "supporting_pages": [
-      9
-    ],
+    "supporting_pages": [9],
     "expected_answer_span": "To translate findings into actionable mitigation techniques.",
     "difficulty": "Medium",
     "topic": "Mitigation"
   },
   {
-    "benchmark_id": "nist_sp_800_115_011",
     "question": "What is the purpose of NIST SP 800-115?",
-    "expected_sources": [
-      "nist_sp_800_115.pdf"
-    ],
+    "document_id": "nist_sp_800_115",
     "section_title": "Purpose and Scope",
-    "supporting_pages": [
-      10
-    ],
+    "supporting_pages": [10],
     "expected_answer_span": "To provide guidelines for organizations on planning and conducting technical information security testing and assessments, analyzing findings, and developing mitigation strategies.",
     "difficulty": "Easy",
     "topic": "Purpose"
   },
   {
-    "benchmark_id": "nist_sp_800_115_012",
     "question": "What does NIST SP 800-115 replace?",
-    "expected_sources": [
-      "nist_sp_800_115.pdf"
-    ],
+    "document_id": "nist_sp_800_115",
     "section_title": "Purpose and Scope",
-    "supporting_pages": [
-      10
-    ],
+    "supporting_pages": [10],
     "expected_answer_span": "NIST Special Publication 800-42, Guideline on Network Security Testing.",
     "difficulty": "Easy",
     "topic": "Document History"
   },
   {
-    "benchmark_id": "nist_sp_800_115_013",
     "question": "Who is the intended audience of NIST SP 800-115?",
-    "expected_sources": [
-      "nist_sp_800_115.pdf"
-    ],
+    "document_id": "nist_sp_800_115",
     "section_title": "Audience",
-    "supporting_pages": [
-      10
-    ],
+    "supporting_pages": [10],
     "expected_answer_span": "Computer security staff, program managers, system and network administrators, and other technical staff responsible for the technical aspects of preparing, operating, and securing systems and network infrastructures.",
     "difficulty": "Easy",
     "topic": "Audience"
   },
   {
-    "benchmark_id": "nist_sp_800_115_014",
     "question": "What are the three minimum phases of a repeatable information security assessment methodology?",
-    "expected_sources": [
-      "nist_sp_800_115.pdf"
-    ],
+    "document_id": "nist_sp_800_115",
     "section_title": "Information Security Assessment Methodology",
-    "supporting_pages": [
-      12,
-      13
-    ],
+    "supporting_pages": [12,13],
     "expected_answer_span": "Planning, Execution, and Post-Execution.",
     "difficulty": "Easy",
     "topic": "Assessment Methodology"
   },
   {
-    "benchmark_id": "nist_sp_800_115_015",
     "question": "What are the three categories of technical assessment techniques described by NIST?",
-    "expected_sources": [
-      "nist_sp_800_115.pdf"
-    ],
+    "document_id": "nist_sp_800_115",
     "section_title": "Technical Assessment Techniques",
-    "supporting_pages": [
-      13,
-      14
-    ],
+    "supporting_pages": [13,14],
     "expected_answer_span": "Review Techniques, Target Identification and Analysis Techniques, and Target Vulnerability Validation Techniques.",
     "difficulty": "Easy",
     "topic": "Assessment Techniques"
   },
   {
-    "benchmark_id": "ptes_001",
     "question": "How many main sections does the Penetration Testing Execution Standard consist of?",
-    "expected_sources": [
-      "ptes.pdf"
-    ],
+    "document_id": "ptes",
     "section_title": "High Level Organization of the Standard",
-    "supporting_pages": [
-      9
-    ],
+    "supporting_pages": [9],
     "expected_answer_span": "The penetration testing execution standard consists of seven (7) main sections.",
     "difficulty": "Easy",
     "topic": "PTES Overview"
   },
   {
-    "benchmark_id": "ptes_002",
     "question": "What are the seven main sections defined by the PTES?",
-    "expected_sources": [
-      "ptes.pdf"
-    ],
+    "document_id": "ptes",
     "section_title": "High Level Organization of the Standard",
-    "supporting_pages": [
-      9
-    ],
+    "supporting_pages": [9],
     "expected_answer_span": "Pre-engagement Interactions, Intelligence Gathering, Threat Modeling, Vulnerability Analysis, Exploitation, Post Exploitation, and Reporting.",
     "difficulty": "Easy",
     "topic": "PTES Phases"
   },
   {
-    "benchmark_id": "ptes_003",
     "question": "What is the purpose of the Pre-engagement Interactions section?",
-    "expected_sources": [
-      "ptes.pdf"
-    ],
+    "document_id": "ptes",
     "section_title": "Overview",
-    "supporting_pages": [
-      11
-    ],
+    "supporting_pages": [11],
     "expected_answer_span": "To present and explain the tools and techniques available which aid in a successful pre-engagement step of a penetration test.",
     "difficulty": "Easy",
     "topic": "Pre-engagement"
   },
   {
-    "benchmark_id": "ptes_004",
     "question": "According to PTES, what should a penetration test primarily focus on?",
-    "expected_sources": [
-      "ptes.pdf"
-    ],
+    "document_id": "ptes",
     "section_title": "Overview",
-    "supporting_pages": [
-      11
-    ],
+    "supporting_pages": [11],
     "expected_answer_span": "It should be about identifying the business risk associated with an attack.",
     "difficulty": "Easy",
     "topic": "Penetration Testing Objectives"
   },
   {
-    "benchmark_id": "ptes_005",
     "question": "Why is defining scope considered one of the most important components of a penetration test?",
-    "expected_sources": [
-      "ptes.pdf"
-    ],
+    "document_id": "ptes",
     "section_title": "Introduction to Scope",
-    "supporting_pages": [
-      11
-    ],
+    "supporting_pages": [11],
     "expected_answer_span": "The scope of a project specifically defines what is to be tested.",
     "difficulty": "Medium",
     "topic": "Scoping"
   },
   {
-    "benchmark_id": "ptes_006",
     "question": "What problems can arise from neglecting pre-engagement activities?",
-    "expected_sources": [
-      "ptes.pdf"
-    ],
+    "document_id": "ptes",
     "section_title": "Introduction to Scope",
-    "supporting_pages": [
-      11
-    ],
+    "supporting_pages": [11],
     "expected_answer_span": "Scope creep, unsatisfied customers, and legal troubles.",
     "difficulty": "Medium",
     "topic": "Pre-engagement Risks"
   },
   {
-    "benchmark_id": "ptes_007",
     "question": "According to PTES, how should testers estimate project time when they have limited prior experience?",
-    "expected_sources": [
-      "ptes.pdf"
-    ],
+    "document_id": "ptes",
     "section_title": "Metrics for Time Estimation",
-    "supporting_pages": [
-      12
-    ],
+    "supporting_pages": [12],
     "expected_answer_span": "Re-read emails and scan logs from previous similar tests and then add 20 percent padding.",
     "difficulty": "Medium",
     "topic": "Time Estimation"
   },
   {
-    "benchmark_id": "ptes_008",
     "question": "What is the purpose of the 20 percent padding added to time estimates?",
-    "expected_sources": [
-      "ptes.pdf"
-    ],
+    "document_id": "ptes",
     "section_title": "Metrics for Time Estimation",
-    "supporting_pages": [
-      12
-    ],
+    "supporting_pages": [12],
     "expected_answer_span": "It provides a cushion should interruptions occur during testing.",
     "difficulty": "Easy",
     "topic": "Project Management"
   },
   {
-    "benchmark_id": "ptes_009",
     "question": "What is the primary goal of the scoping meeting?",
-    "expected_sources": [
-      "ptes.pdf"
-    ],
+    "document_id": "ptes",
     "section_title": "Scoping Meeting",
-    "supporting_pages": [
-      12
-    ],
+    "supporting_pages": [12],
     "expected_answer_span": "To discuss what will be tested.",
     "difficulty": "Easy",
     "topic": "Scoping"
   },
   {
-    "benchmark_id": "ptes_010",
     "question": "Why should penetration testers verify ownership of target environments during scoping?",
-    "expected_sources": [
-      "ptes.pdf"
-    ],
+    "document_id": "ptes",
     "section_title": "Scoping Meeting",
-    "supporting_pages": [
-      13
-    ],
+    "supporting_pages": [13],
     "expected_answer_span": "Because possible legal ramifications must be considered above all else.",
     "difficulty": "Medium",
     "topic": "Legal Considerations"
   },
   {
-    "benchmark_id": "ptes_011",
     "question": "How should work outside the agreed engagement scope be handled?",
-    "expected_sources": [
-      "ptes.pdf"
-    ],
+    "document_id": "ptes",
     "section_title": "Additional Support Based on Hourly Rate",
-    "supporting_pages": [
-      13
-    ],
+    "supporting_pages": [13],
     "expected_answer_span": "It should be documented in the form of a statement of work.",
     "difficulty": "Medium",
     "topic": "Scope Management"
   },
   {
-    "benchmark_id": "ptes_012",
     "question": "Why does PTES recommend documenting requests outside the original scope?",
-    "expected_sources": [
-      "ptes.pdf"
-    ],
+    "document_id": "ptes",
     "section_title": "Additional Support Based on Hourly Rate",
-    "supporting_pages": [
-      13
-    ],
+    "supporting_pages": [13],
     "expected_answer_span": "To avoid scope creep and reduce legal risk.",
     "difficulty": "Medium",
     "topic": "Scope Creep"
   },
   {
-    "benchmark_id": "ptes_013",
     "question": "According to PTES, why are customer questionnaires used during pre-engagement?",
-    "expected_sources": [
-      "ptes.pdf"
-    ],
+    "document_id": "ptes",
     "section_title": "Questionnaires",
-    "supporting_pages": [
-      13
-    ],
+    "supporting_pages": [13],
     "expected_answer_span": "To properly estimate the engagement scope and understand the client's objectives.",
     "difficulty": "Easy",
     "topic": "Questionnaires"
   },
   {
-    "benchmark_id": "ptes_014",
     "question": "What is scope creep according to PTES?",
-    "expected_sources": [
-      "ptes.pdf"
-    ],
+    "document_id": "ptes",
     "section_title": "Scope Creep",
-    "supporting_pages": [
-      16
-    ],
+    "supporting_pages": [16],
     "expected_answer_span": "Expansion of work beyond the agreed engagement scope, consuming additional resources.",
     "difficulty": "Medium",
     "topic": "Scope Management"
   },
   {
-    "benchmark_id": "ptes_015",
     "question": "Why should penetration testing contracts explicitly specify start and end dates?",
-    "expected_sources": [
-      "ptes.pdf"
-    ],
+    "document_id": "ptes",
     "section_title": "Specify Start and End Dates",
-    "supporting_pages": [
-      16
-    ],
+    "supporting_pages": [16],
     "expected_answer_span": "To help prevent scope creep and define a clear project end.",
     "difficulty": "Easy",
     "topic": "Project Planning"
   },
   {
-    "benchmark_id": "ptes_016",
     "question": "Why must target IP ranges be validated before testing begins?",
-    "expected_sources": [
-      "ptes.pdf"
-    ],
+    "document_id": "ptes",
     "section_title": "Specify IP Ranges and Domains",
-    "supporting_pages": [
-      17
-    ],
+    "supporting_pages": [17],
     "expected_answer_span": "To ensure the targets are actually owned by the customer and avoid legal consequences.",
     "difficulty": "Easy",
     "topic": "Target Validation"
   },
   {
-    "benchmark_id": "ptes_017",
     "question": "Why must permission also be obtained from third-party providers when their hosted systems are tested?",
-    "expected_sources": [
-      "ptes.pdf"
-    ],
+    "document_id": "ptes",
     "section_title": "Dealing with Third Parties",
-    "supporting_pages": [
-      17
-    ],
+    "supporting_pages": [17],
     "expected_answer_span": "Because the client cannot grant permission on behalf of third-party providers.",
     "difficulty": "Medium",
     "topic": "Third Parties"
   },
   {
-    "benchmark_id": "ptes_018",
     "question": "According to PTES, when should denial-of-service testing be performed?",
-    "expected_sources": [
-      "ptes.pdf"
-    ],
+    "document_id": "ptes",
     "section_title": "DoS Testing",
-    "supporting_pages": [
-      18
-    ],
+    "supporting_pages": [18],
     "expected_answer_span": "In a non-production environment that is identical to production.",
     "difficulty": "Easy",
     "topic": "DoS Testing"
   },
   {
-    "benchmark_id": "ptes_019",
     "question": "What should be the primary goal of every penetration test?",
-    "expected_sources": [
-      "ptes.pdf"
-    ],
+    "document_id": "ptes",
     "section_title": "Goals",
-    "supporting_pages": [
-      19
-    ],
+    "supporting_pages": [19],
     "expected_answer_span": "To identify specific vulnerabilities that lead to compromise of the customer's business or mission objectives.",
     "difficulty": "Medium",
     "topic": "Goals"
   },
   {
-    "benchmark_id": "ptes_020",
     "question": "Why does PTES state that compliance should not be the primary goal of a penetration test?",
-    "expected_sources": [
-      "ptes.pdf"
-    ],
+    "document_id": "ptes",
     "section_title": "Goals",
-    "supporting_pages": [
-      19
-    ],
+    "supporting_pages": [19],
     "expected_answer_span": "Because compliance does not equal security.",
     "difficulty": "Medium",
     "topic": "Compliance"
   },
   {
-    "benchmark_id": "rag_survey_001",
     "question": "What is the primary objective of the RAG survey paper?",
-    "expected_sources": [
-      "rag_survey.pdf"
-    ],
+    "document_id": "rag_survey",
     "section_title": "Abstract",
-    "supporting_pages": [
-      1
-    ],
+    "supporting_pages": [1],
     "expected_answer_span": "This survey aims to serve as a foundational resource for researchers and practitioners in understanding the potential of RAG and its trajectory in the field of natural language processing.",
     "difficulty": "Easy",
     "topic": "Survey Overview"
   },
   {
-    "benchmark_id": "rag_survey_002",
     "question": "Why was Retrieval-Augmented Generation developed?",
-    "expected_sources": [
-      "rag_survey.pdf"
-    ],
+    "document_id": "rag_survey",
     "section_title": "Overview of Retrieval-Augmented Generation",
-    "supporting_pages": [
-      2
-    ],
+    "supporting_pages": [2],
     "expected_answer_span": "Retrieval-Augmented Generation (RAG) is an emerging hybrid architecture designed to address the limitations of pure generative models.",
     "difficulty": "Easy",
     "topic": "Motivation"
   },
   {
-    "benchmark_id": "rag_survey_003",
     "question": "What are the two key components of a Retrieval-Augmented Generation system?",
-    "expected_sources": [
-      "rag_survey.pdf"
-    ],
+    "document_id": "rag_survey",
     "section_title": "Overview of Retrieval-Augmented Generation",
-    "supporting_pages": [
-      2,
-      5
-    ],
+    "supporting_pages": [2,5],
     "expected_answer_span": "A retrieval mechanism and a generation module.",
     "difficulty": "Easy",
     "topic": "Architecture"
   },
   {
-    "benchmark_id": "rag_survey_004",
     "question": "How does RAG help reduce hallucinations in large language models?",
-    "expected_sources": [
-      "rag_survey.pdf"
-    ],
+    "document_id": "rag_survey",
     "section_title": "Overview of Retrieval-Augmented Generation",
-    "supporting_pages": [
-      2
-    ],
+    "supporting_pages": [2],
     "expected_answer_span": "This methodology helps mitigate the hallucination problem and ensures that the generated text is more factual and contextually appropriate.",
     "difficulty": "Medium",
     "topic": "Hallucination"
   },
   {
-    "benchmark_id": "rag_survey_005",
     "question": "What limitation of traditional large language models does RAG overcome?",
-    "expected_sources": [
-      "rag_survey.pdf"
-    ],
+    "document_id": "rag_survey",
     "section_title": "Overview of RAG Models",
-    "supporting_pages": [
-      5
-    ],
+    "supporting_pages": [5],
     "expected_answer_span": "Traditional large language models rely entirely on their internal representations of knowledge and cannot efficiently update their knowledge bases without retraining.",
     "difficulty": "Medium",
     "topic": "Knowledge Updating"
   },
   {
-    "benchmark_id": "rag_survey_006",
     "question": "Why are retrieval-based systems alone insufficient for natural language generation?",
-    "expected_sources": [
-      "rag_survey.pdf"
-    ],
+    "document_id": "rag_survey",
     "section_title": "Evolution of Hybrid Models",
-    "supporting_pages": [
-      3
-    ],
+    "supporting_pages": [3],
     "expected_answer_span": "They efficiently provide relevant documents or snippets but could not synthesize new information or present the results in a coherent narrative.",
     "difficulty": "Medium",
     "topic": "Retrieval Systems"
   },
   {
-    "benchmark_id": "rag_survey_007",
     "question": "Which model first jointly trained retrieval and generation components according to the survey?",
-    "expected_sources": [
-      "rag_survey.pdf"
-    ],
+    "document_id": "rag_survey",
     "section_title": "Evolution of Hybrid Models",
-    "supporting_pages": [
-      3
-    ],
+    "supporting_pages": [3],
     "expected_answer_span": "REALM represented a key milestone, as it trained the retrieval and generative components jointly.",
     "difficulty": "Medium",
     "topic": "REALM"
   },
   {
-    "benchmark_id": "rag_survey_008",
     "question": "Why is factually grounded language generation important?",
-    "expected_sources": [
-      "rag_survey.pdf"
-    ],
+    "document_id": "rag_survey",
     "section_title": "Importance of Factually Grounded Language Generation",
-    "supporting_pages": [
-      3,
-      4
-    ],
+    "supporting_pages": [3,4],
     "expected_answer_span": "Generative models that produce hallucinated or inaccurate information can lead to serious consequences, such as spreading misinformation or providing incorrect advice.",
     "difficulty": "Medium",
     "topic": "Grounding"
   },
   {
-    "benchmark_id": "rag_survey_009",
     "question": "How does RAG improve factual accuracy?",
-    "expected_sources": [
-      "rag_survey.pdf"
-    ],
+    "document_id": "rag_survey",
     "section_title": "Importance of Factually Grounded Language Generation",
-    "supporting_pages": [
-      4
-    ],
+    "supporting_pages": [4],
     "expected_answer_span": "RAG models directly address these concerns by grounding their generative process in external, up-to-date knowledge sources.",
     "difficulty": "Easy",
     "topic": "Grounding"
   },
   {
-    "benchmark_id": "rag_survey_010",
     "question": "What are some application domains of Retrieval-Augmented Generation?",
-    "expected_sources": [
-      "rag_survey.pdf"
-    ],
+    "document_id": "rag_survey",
     "section_title": "Applications of RAG Models",
-    "supporting_pages": [
-      4
-    ],
+    "supporting_pages": [4],
     "expected_answer_span": "Open-domain question answering, conversational AI, medical diagnosis systems, legal advisory systems, and personalized recommendation systems.",
     "difficulty": "Easy",
     "topic": "Applications"
   },
   {
-    "benchmark_id": "rag_survey_011",
     "question": "What retrieval algorithms are commonly used in Retrieval-Augmented Generation systems?",
-    "expected_sources": [
-      "rag_survey.pdf"
-    ],
+    "document_id": "rag_survey",
     "section_title": "Retriever Mechanisms in RAG Systems",
-    "supporting_pages": [
-      5,
-      6
-    ],
+    "supporting_pages": [5,6],
     "expected_answer_span": "BM25 and Dense Passage Retrieval (DPR).",
     "difficulty": "Easy",
     "topic": "Retriever"
   },
   {
-    "benchmark_id": "rag_survey_012",
     "question": "What is the primary limitation of BM25 described in the survey?",
-    "expected_sources": [
-      "rag_survey.pdf"
-    ],
+    "document_id": "rag_survey",
     "section_title": "BM25",
-    "supporting_pages": [
-      6
-    ],
+    "supporting_pages": [6],
     "expected_answer_span": "BM25 cannot capture the relationships between words and tends to perform poorly on more complex, natural language queries that require an understanding of context.",
     "difficulty": "Medium",
     "topic": "BM25"
   },
   {
-    "benchmark_id": "rag_survey_013",
     "question": "Why is Dense Passage Retrieval more effective than BM25 for semantic retrieval?",
-    "expected_sources": [
-      "rag_survey.pdf"
-    ],
+    "document_id": "rag_survey",
     "section_title": "Dense Passage Retrieval",
-    "supporting_pages": [
-      6
-    ],
+    "supporting_pages": [6],
     "expected_answer_span": "DPR excels at capturing semantic similarity between the query and documents, making it highly effective for open-domain question-answering tasks.",
     "difficulty": "Medium",
     "topic": "DPR"
   },
   {
-    "benchmark_id": "rag_survey_014",
     "question": "What is the key innovation introduced by REALM?",
-    "expected_sources": [
-      "rag_survey.pdf"
-    ],
+    "document_id": "rag_survey",
     "section_title": "REALM",
-    "supporting_pages": [
-      6
-    ],
+    "supporting_pages": [6],
     "expected_answer_span": "REALM integrates retrieval into the language model's pre-training process, ensuring that the retriever is optimized alongside the generator.",
     "difficulty": "Medium",
     "topic": "REALM"
   },
   {
-    "benchmark_id": "rag_survey_015",
     "question": "What role does the generator play in a RAG system?",
-    "expected_sources": [
-      "rag_survey.pdf"
-    ],
+    "document_id": "rag_survey",
     "section_title": "Generator Mechanisms",
-    "supporting_pages": [
-      7
-    ],
+    "supporting_pages": [7],
     "expected_answer_span": "The generator synthesizes retrieved information into coherent, contextually appropriate responses.",
     "difficulty": "Easy",
     "topic": "Generator"
   },
   {
-    "benchmark_id": "rag_survey_016",
     "question": "Why is T5 widely used in Retrieval-Augmented Generation systems?",
-    "expected_sources": [
-      "rag_survey.pdf"
-    ],
+    "document_id": "rag_survey",
     "section_title": "T5",
-    "supporting_pages": [
-      7
-    ],
+    "supporting_pages": [7],
     "expected_answer_span": "T5 frames every NLP task as a text-to-text task and can be fine-tuned for question-answering, summarization, and dialogue generation.",
     "difficulty": "Medium",
     "topic": "T5"
   },
   {
-    "benchmark_id": "rag_survey_017",
     "question": "Why is BART well suited for Retrieval-Augmented Generation?",
-    "expected_sources": [
-      "rag_survey.pdf"
-    ],
+    "document_id": "rag_survey",
     "section_title": "BART",
-    "supporting_pages": [
-      7
-    ],
+    "supporting_pages": [7],
     "expected_answer_span": "BART is particularly well-suited for tasks involving text generation from noisy inputs and improves factual accuracy by grounding generated text in external knowledge.",
     "difficulty": "Medium",
     "topic": "BART"
   },
   {
-    "benchmark_id": "rag_survey_018",
     "question": "Which modalities beyond text are discussed for Retrieval-Augmented Generation?",
-    "expected_sources": [
-      "rag_survey.pdf"
-    ],
+    "document_id": "rag_survey",
     "section_title": "Retrieval-Augmented Generation Models Across Different Modalities",
-    "supporting_pages": [
-      8
-    ],
+    "supporting_pages": [8],
     "expected_answer_span": "Audio, video, and multimodal systems integrating text, audio, video, and images.",
     "difficulty": "Easy",
     "topic": "Multimodal RAG"
   },
   {
-    "benchmark_id": "rag_survey_019",
     "question": "According to the survey, what are the main current challenges facing RAG systems?",
-    "expected_sources": [
-      "rag_survey.pdf"
-    ],
+    "document_id": "rag_survey",
     "section_title": "Current Challenges and Limitations",
-    "supporting_pages": [
-      11,
-      12
-    ],
+    "supporting_pages": [11,12],
     "expected_answer_span": "Scalability and efficiency, retrieval quality and relevance, bias and fairness, coherence, interpretability and transparency.",
     "difficulty": "Medium",
     "topic": "Challenges"
   },
   {
-    "benchmark_id": "rag_survey_020",
     "question": "What future research directions does the survey identify for Retrieval-Augmented Generation?",
-    "expected_sources": [
-      "rag_survey.pdf"
-    ],
+    "document_id": "rag_survey",
     "section_title": "Future Research Directions",
-    "supporting_pages": [
-      12,
-      13
-    ],
+    "supporting_pages": [12,13],
     "expected_answer_span": "Enhancing multimodal integration, scaling and efficiency, personalization and adaptation, ethical and privacy considerations, cross-lingual support, advanced retrieval mechanisms, and integration with emerging technologies.",
     "difficulty": "Medium",
     "topic": "Future Directions"
   },
   {
-    "benchmark_id": "self_rag_001",
     "question": "What problem in large language models motivated the development of SELF-RAG?",
-    "expected_sources": [
-      "self_rag.pdf"
-    ],
+    "document_id": "self_rag",
     "section_title": "Abstract",
-    "supporting_pages": [
-      1
-    ],
+    "supporting_pages": [1],
     "expected_answer_span": "Large language models often produce responses containing factual inaccuracies due to their sole reliance on the parametric knowledge they encapsulate.",
     "difficulty": "Easy",
     "topic": "Motivation"
   },
   {
-    "benchmark_id": "self_rag_002",
     "question": "What is the main objective of SELF-RAG?",
-    "expected_sources": [
-      "self_rag.pdf"
-    ],
+    "document_id": "self_rag",
     "section_title": "Abstract",
-    "supporting_pages": [
-      1
-    ],
+    "supporting_pages": [1],
     "expected_answer_span": "SELF-RAG enhances an LM’s quality and factuality through retrieval and self-reflection.",
     "difficulty": "Easy",
     "topic": "Overview"
   },
   {
-    "benchmark_id": "self_rag_003",
     "question": "Why can conventional Retrieval-Augmented Generation reduce language model versatility?",
-    "expected_sources": [
-      "self_rag.pdf"
-    ],
+    "document_id": "self_rag",
     "section_title": "Abstract",
-    "supporting_pages": [
-      1
-    ],
+    "supporting_pages": [1],
     "expected_answer_span": "It indiscriminately retrieves and incorporates a fixed number of retrieved passages regardless of whether retrieval is necessary or passages are relevant.",
     "difficulty": "Medium",
     "topic": "Limitations of RAG"
   },
   {
-    "benchmark_id": "self_rag_004",
     "question": "What are reflection tokens in SELF-RAG?",
-    "expected_sources": [
-      "self_rag.pdf"
-    ],
+    "document_id": "self_rag",
     "section_title": "Introduction",
-    "supporting_pages": [
-      1
-    ],
+    "supporting_pages": [1],
     "expected_answer_span": "Special tokens used for retrieval and critique that enable the model to retrieve, generate, and reflect on retrieved passages and its own generations.",
     "difficulty": "Easy",
     "topic": "Reflection Tokens"
   },
   {
-    "benchmark_id": "self_rag_005",
     "question": "What two categories of reflection tokens are introduced in SELF-RAG?",
-    "expected_sources": [
-      "self_rag.pdf"
-    ],
+    "document_id": "self_rag",
     "section_title": "Introduction",
-    "supporting_pages": [
-      1
-    ],
+    "supporting_pages": [1],
     "expected_answer_span": "Retrieval tokens and critique tokens.",
     "difficulty": "Easy",
     "topic": "Reflection Tokens"
   },
   {
-    "benchmark_id": "self_rag_006",
     "question": "How does SELF-RAG decide whether retrieval should occur?",
-    "expected_sources": [
-      "self_rag.pdf"
-    ],
+    "document_id": "self_rag",
     "section_title": "Introduction",
-    "supporting_pages": [
-      1,
-      4
-    ],
+    "supporting_pages": [1,4],
     "expected_answer_span": "It first determines whether augmenting the continued generation with retrieved passages would be helpful and outputs a retrieval token if retrieval is needed.",
     "difficulty": "Medium",
     "topic": "Adaptive Retrieval"
   },
   {
-    "benchmark_id": "self_rag_007",
     "question": "What are the three major inference steps illustrated in the SELF-RAG framework?",
-    "expected_sources": [
-      "self_rag.pdf"
-    ],
+    "document_id": "self_rag",
     "section_title": "Overview",
-    "supporting_pages": [
-      2
-    ],
+    "supporting_pages": [2],
     "expected_answer_span": "Retrieve on demand, generate segments in parallel, and critique outputs to select the best segment.",
     "difficulty": "Easy",
     "topic": "Inference"
   },
   {
-    "benchmark_id": "self_rag_008",
     "question": "Why does SELF-RAG provide citations for generated segments?",
-    "expected_sources": [
-      "self_rag.pdf"
-    ],
+    "document_id": "self_rag",
     "section_title": "Overview",
-    "supporting_pages": [
-      2
-    ],
+    "supporting_pages": [2],
     "expected_answer_span": "To make fact verification easier by indicating whether the generated output is supported by the retrieved passage.",
     "difficulty": "Easy",
     "topic": "Citation"
   },
   {
-    "benchmark_id": "self_rag_009",
     "question": "How are reflection tokens incorporated into SELF-RAG training?",
-    "expected_sources": [
-      "self_rag.pdf"
-    ],
+    "document_id": "self_rag",
     "section_title": "Overview",
-    "supporting_pages": [
-      2
-    ],
+    "supporting_pages": [2],
     "expected_answer_span": "Reflection tokens are inserted offline into the original corpus by a trained critic model before training the generator.",
     "difficulty": "Medium",
     "topic": "Training"
   },
   {
-    "benchmark_id": "self_rag_010",
     "question": "What advantage does offline insertion of reflection tokens provide during training?",
-    "expected_sources": [
-      "self_rag.pdf"
-    ],
+    "document_id": "self_rag",
     "section_title": "Overview",
-    "supporting_pages": [
-      2
-    ],
+    "supporting_pages": [2],
     "expected_answer_span": "It eliminates the need to host a critic model during training, reducing overhead.",
     "difficulty": "Medium",
     "topic": "Training Efficiency"
   },
   {
-    "benchmark_id": "self_rag_011",
     "question": "What capability do reflection tokens provide during inference?",
-    "expected_sources": [
-      "self_rag.pdf"
-    ],
+    "document_id": "self_rag",
     "section_title": "Overview",
-    "supporting_pages": [
-      2,
-      6
-    ],
+    "supporting_pages": [2,6],
     "expected_answer_span": "They make the language model controllable during inference, allowing retrieval frequency and generation behaviour to be customized.",
     "difficulty": "Medium",
     "topic": "Inference Control"
   },
   {
-    "benchmark_id": "self_rag_012",
     "question": "According to SELF-RAG, what are the four types of reflection tokens?",
-    "expected_sources": [
-      "self_rag.pdf"
-    ],
+    "document_id": "self_rag",
     "section_title": "Reflection Tokens",
-    "supporting_pages": [
-      4
-    ],
+    "supporting_pages": [4],
     "expected_answer_span": "Retrieve, ISREL, ISSUP, and ISUSE.",
     "difficulty": "Easy",
     "topic": "Reflection Tokens"
   },
   {
-    "benchmark_id": "self_rag_013",
     "question": "What does the ISREL reflection token evaluate?",
-    "expected_sources": [
-      "self_rag.pdf"
-    ],
+    "document_id": "self_rag",
     "section_title": "Reflection Tokens",
-    "supporting_pages": [
-      4
-    ],
+    "supporting_pages": [4],
     "expected_answer_span": "Whether the retrieved passage provides useful information to solve the input.",
     "difficulty": "Easy",
     "topic": "ISREL"
   },
   {
-    "benchmark_id": "self_rag_014",
     "question": "What does the ISSUP reflection token evaluate?",
-    "expected_sources": [
-      "self_rag.pdf"
-    ],
+    "document_id": "self_rag",
     "section_title": "Reflection Tokens",
-    "supporting_pages": [
-      4
-    ],
+    "supporting_pages": [4],
     "expected_answer_span": "Whether all verification-worthy statements in the generated output are supported by the retrieved passage.",
     "difficulty": "Medium",
     "topic": "ISSUP"
   },
   {
-    "benchmark_id": "self_rag_015",
     "question": "What does the ISUSE reflection token measure?",
-    "expected_sources": [
-      "self_rag.pdf"
-    ],
+    "document_id": "self_rag",
     "section_title": "Reflection Tokens",
-    "supporting_pages": [
-      4
-    ],
+    "supporting_pages": [4],
     "expected_answer_span": "The usefulness of the generated response to the input.",
     "difficulty": "Easy",
     "topic": "ISUSE"
   },
   {
-    "benchmark_id": "self_rag_016",
     "question": "Which proprietary language model was used to generate supervised reflection-token annotations?",
-    "expected_sources": [
-      "self_rag.pdf"
-    ],
+    "document_id": "self_rag",
     "section_title": "Training the Critic Model",
-    "supporting_pages": [
-      5
-    ],
+    "supporting_pages": [5],
     "expected_answer_span": "GPT-4.",
     "difficulty": "Easy",
     "topic": "Critic Training"
   },
   {
-    "benchmark_id": "self_rag_017",
     "question": "What objective is used to train the generator model in SELF-RAG?",
-    "expected_sources": [
-      "self_rag.pdf"
-    ],
+    "document_id": "self_rag",
     "section_title": "Training the Generator Model",
-    "supporting_pages": [
-      5
-    ],
+    "supporting_pages": [5],
     "expected_answer_span": "The standard next-token prediction objective.",
     "difficulty": "Easy",
     "topic": "Generator Training"
   },
   {
-    "benchmark_id": "self_rag_018",
     "question": "How does SELF-RAG dynamically determine when to retrieve external documents during inference?",
-    "expected_sources": [
-      "self_rag.pdf"
-    ],
+    "document_id": "self_rag",
     "section_title": "SELF-RAG Inference",
-    "supporting_pages": [
-      6
-    ],
+    "supporting_pages": [6],
     "expected_answer_span": "By predicting the Retrieve token or comparing its normalized probability against a retrieval threshold.",
     "difficulty": "Medium",
     "topic": "Adaptive Retrieval"
   },
   {
-    "benchmark_id": "self_rag_019",
     "question": "What is the purpose of critique-guided tree decoding in SELF-RAG?",
-    "expected_sources": [
-      "self_rag.pdf"
-    ],
+    "document_id": "self_rag",
     "section_title": "SELF-RAG Inference",
-    "supporting_pages": [
-      6
-    ],
+    "supporting_pages": [6],
     "expected_answer_span": "To rank candidate generations using weighted critique-token scores and select the best segment.",
     "difficulty": "Medium",
     "topic": "Decoding"
   },
   {
-    "benchmark_id": "self_rag_020",
     "question": "According to the experiments, on which kinds of tasks does SELF-RAG outperform conventional retrieval-augmented generation approaches?",
-    "expected_sources": [
-      "self_rag.pdf"
-    ],
+    "document_id": "self_rag",
     "section_title": "Main Results",
-    "supporting_pages": [
-      8
-    ],
+    "supporting_pages": [8],
     "expected_answer_span": "Open-domain question answering, reasoning, fact verification, biography generation, and long-form question answering with citations.",
     "difficulty": "Medium",
     "topic": "Experimental Results"
   },
   {
-    "benchmark_id": "self_rag_021",
     "question": "What key conclusion is drawn about SELF-RAG in the paper?",
-    "expected_sources": [
-      "self_rag.pdf"
-    ],
+    "document_id": "self_rag",
     "section_title": "Conclusion",
-    "supporting_pages": [
-      10
-    ],
+    "supporting_pages": [10],
     "expected_answer_span": "SELF-RAG significantly outperforms larger language models and conventional retrieval-augmented generation approaches by combining retrieval on demand with self-reflection.",
     "difficulty": "Easy",
     "topic": "Conclusion"
   },
   {
-    "benchmark_id": "targ_001",
     "question": "What problem does TARG address in Retrieval-Augmented Generation systems?",
-    "expected_sources": [
-      "targ.pdf"
-    ],
+    "document_id": "targ",
     "section_title": "Abstract",
-    "supporting_pages": [
-      1
-    ],
+    "supporting_pages": [1],
     "expected_answer_span": "Retrieving for every query often hurts quality while inflating tokens and latency.",
     "difficulty": "Easy",
     "topic": "Motivation"
   },
   {
-    "benchmark_id": "targ_002",
     "question": "What is the primary objective of TARG?",
-    "expected_sources": [
-      "targ.pdf"
-    ],
+    "document_id": "targ",
     "section_title": "Abstract",
-    "supporting_pages": [
-      1
-    ],
+    "supporting_pages": [1],
     "expected_answer_span": "To decide when retrieval should occur using only a short, no-context draft from the base model.",
     "difficulty": "Easy",
     "topic": "Overview"
   },
   {
-    "benchmark_id": "targ_003",
     "question": "Why is unconditional retrieval undesirable according to the paper?",
-    "expected_sources": [
-      "targ.pdf"
-    ],
+    "document_id": "targ",
     "section_title": "Introduction",
-    "supporting_pages": [
-      1
-    ],
+    "supporting_pages": [1],
     "expected_answer_span": "Invoking retrieval for every input increases latency and token usage, and can reduce accuracy when retrieved evidence is noisy or tangential.",
     "difficulty": "Easy",
     "topic": "Motivation"
   },
   {
-    "benchmark_id": "targ_004",
     "question": "What does TARG use to determine whether retrieval is necessary?",
-    "expected_sources": [
-      "targ.pdf"
-    ],
+    "document_id": "targ",
     "section_title": "Introduction",
-    "supporting_pages": [
-      2
-    ],
+    "supporting_pages": [2],
     "expected_answer_span": "A short retrieval-free draft whose prefix logits are used to compute a lightweight uncertainty score.",
     "difficulty": "Easy",
     "topic": "Adaptive Retrieval"
   },
   {
-    "benchmark_id": "targ_005",
     "question": "Which three uncertainty signals are proposed by TARG?",
-    "expected_sources": [
-      "targ.pdf"
-    ],
+    "document_id": "targ",
     "section_title": "Introduction",
-    "supporting_pages": [
-      2
-    ],
+    "supporting_pages": [2],
     "expected_answer_span": "Mean token entropy, a margin-based score derived from the top-1/top-2 logit gap, and a small-N variance score.",
     "difficulty": "Easy",
     "topic": "Uncertainty Estimation"
   },
   {
-    "benchmark_id": "targ_006",
     "question": "According to the paper, why is the margin signal preferred over entropy on instruction-tuned language models?",
-    "expected_sources": [
-      "targ.pdf"
-    ],
+    "document_id": "targ",
     "section_title": "Introduction",
-    "supporting_pages": [
-      2
-    ],
+    "supporting_pages": [2],
     "expected_answer_span": "Prefix entropies compress as backbones sharpen, whereas the top-1/top-2 margin retains dynamic range.",
     "difficulty": "Medium",
     "topic": "Margin Gate"
   },
   {
-    "benchmark_id": "targ_007",
     "question": "How does TARG differ from FLARE, Self-RAG, and CRAG?",
-    "expected_sources": [
-      "targ.pdf"
-    ],
+    "document_id": "targ",
     "section_title": "Related Work",
-    "supporting_pages": [
-      2,
-      3
-    ],
+    "supporting_pages": [2,3],
     "expected_answer_span": "TARG makes a single, training-free retrieval decision from prefix logits without control heads, auxiliary models, or multi-stage retrieval loops.",
     "difficulty": "Medium",
     "topic": "Comparison"
   },
   {
-    "benchmark_id": "targ_008",
     "question": "What is the purpose of the uncertainty gate shown in Figure 1?",
-    "expected_sources": [
-      "targ.pdf"
-    ],
+    "document_id": "targ",
     "section_title": "Method",
-    "supporting_pages": [
-      3
-    ],
+    "supporting_pages": [3],
     "expected_answer_span": "To determine whether retrieval should be triggered before final generation based on the uncertainty score.",
     "difficulty": "Easy",
     "topic": "Architecture"
   },
   {
-    "benchmark_id": "targ_009",
     "question": "What is the objective of the TARG retrieval decision?",
-    "expected_sources": [
-      "targ.pdf"
-    ],
+    "document_id": "targ",
     "section_title": "Method",
-    "supporting_pages": [
-      4
-    ],
+    "supporting_pages": [4],
     "expected_answer_span": "To minimize retrieval calls, context tokens, and wall-time latency while preserving or improving task accuracy.",
     "difficulty": "Easy",
     "topic": "Objective"
   },
   {
-    "benchmark_id": "targ_010",
     "question": "How is the entropy uncertainty score computed?",
-    "expected_sources": [
-      "targ.pdf"
-    ],
+    "document_id": "targ",
     "section_title": "Prefix Uncertainty",
-    "supporting_pages": [
-      4
-    ],
+    "supporting_pages": [4],
     "expected_answer_span": "As the mean token entropy over the k-token retrieval-free prefix.",
     "difficulty": "Medium",
     "topic": "Entropy Gate"
   },
   {
-    "benchmark_id": "targ_011",
     "question": "How is the margin uncertainty score computed?",
-    "expected_sources": [
-      "targ.pdf"
-    ],
+    "document_id": "targ",
     "section_title": "Prefix Uncertainty",
-    "supporting_pages": [
-      4
-    ],
+    "supporting_pages": [4],
     "expected_answer_span": "Using the top-1 versus top-2 logit gap mapped through a strictly decreasing exponential function.",
     "difficulty": "Medium",
     "topic": "Margin Gate"
   },
   {
-    "benchmark_id": "targ_012",
     "question": "What quantity is measured by the small-N variance gate?",
-    "expected_sources": [
-      "targ.pdf"
-    ],
+    "document_id": "targ",
     "section_title": "Prefix Uncertainty",
-    "supporting_pages": [
-      4
-    ],
+    "supporting_pages": [4],
     "expected_answer_span": "Disagreement among multiple short stochastic prefixes generated from the same query.",
     "difficulty": "Medium",
     "topic": "Variance Gate"
   },
   {
-    "benchmark_id": "targ_013",
     "question": "What condition causes TARG to trigger retrieval?",
-    "expected_sources": [
-      "targ.pdf"
-    ],
+    "document_id": "targ",
     "section_title": "Gate Decision",
-    "supporting_pages": [
-      4
-    ],
+    "supporting_pages": [4],
     "expected_answer_span": "Retrieval is triggered whenever the uncertainty score U(q) exceeds the threshold τ.",
     "difficulty": "Easy",
     "topic": "Decision Rule"
   },
   {
-    "benchmark_id": "targ_014",
     "question": "What retrieval infrastructure is used once retrieval is triggered?",
-    "expected_sources": [
-      "targ.pdf"
-    ],
+    "document_id": "targ",
     "section_title": "Gate Decision",
-    "supporting_pages": [
-      4
-    ],
+    "supporting_pages": [4],
     "expected_answer_span": "A dense encoder together with a FAISS inner-product index retrieves the top-K passages.",
     "difficulty": "Easy",
     "topic": "Retriever"
   },
   {
-    "benchmark_id": "targ_015",
     "question": "What recommendation does the paper make regarding dynamic re-checking during generation?",
-    "expected_sources": [
-      "targ.pdf"
-    ],
+    "document_id": "targ",
     "section_title": "Gate Decision",
-    "supporting_pages": [
-      5
-    ],
+    "supporting_pages": [5],
     "expected_answer_span": "Dynamic re-checking greatly increases retrieval rate and latency with little improvement in accuracy, so single-shot gating is used in all main experiments.",
     "difficulty": "Medium",
     "topic": "Inference"
   },
   {
-    "benchmark_id": "targ_016",
     "question": "Which uncertainty gate is recommended as the default in TARG?",
-    "expected_sources": [
-      "targ.pdf"
-    ],
+    "document_id": "targ",
     "section_title": "Gate Decision",
-    "supporting_pages": [
-      5
-    ],
+    "supporting_pages": [5],
     "expected_answer_span": "The Margin gate is recommended as the default because it is simple and robust.",
     "difficulty": "Easy",
     "topic": "Recommendation"
   },
   {
-    "benchmark_id": "targ_017",
     "question": "How does TARG calibrate retrieval budgets?",
-    "expected_sources": [
-      "targ.pdf"
-    ],
+    "document_id": "targ",
     "section_title": "Cost, Accuracy and Calibration",
-    "supporting_pages": [
-      6
-    ],
+    "supporting_pages": [6],
     "expected_answer_span": "By selecting the threshold τ from the empirical cumulative distribution of uncertainty scores to achieve a desired retrieval rate.",
     "difficulty": "Medium",
     "topic": "Calibration"
   },
   {
-    "benchmark_id": "targ_018",
     "question": "Which retriever and vector index are used in the implementation?",
-    "expected_sources": [
-      "targ.pdf"
-    ],
+    "document_id": "targ",
     "section_title": "Implementation Details",
-    "supporting_pages": [
-      6
-    ],
+    "supporting_pages": [6],
     "expected_answer_span": "E5-base-v2 together with a FAISS IndexFlatIP vector index.",
     "difficulty": "Easy",
     "topic": "Implementation"
   },
   {
-    "benchmark_id": "targ_019",
     "question": "Which datasets are used to evaluate TARG?",
-    "expected_sources": [
-      "targ.pdf"
-    ],
+    "document_id": "targ",
     "section_title": "Experimental Setup",
-    "supporting_pages": [
-      6
-    ],
+    "supporting_pages": [6],
     "expected_answer_span": "NQ-Open, TriviaQA, PopQA, MuSiQue, and ASQA.",
     "difficulty": "Easy",
     "topic": "Evaluation"
   },
   {
-    "benchmark_id": "targ_020",
     "question": "According to the experimental results, what is the main practical recommendation for deployment?",
-    "expected_sources": [
-      "targ.pdf"
-    ],
+    "document_id": "targ",
     "section_title": "Discussion",
-    "supporting_pages": [
-      10
-    ],
+    "supporting_pages": [10],
     "expected_answer_span": "Use Margin by default, switch to Variance when budgets are extremely tight, and report accuracy together with retrieval rate and Δ latency.",
     "difficulty": "Medium",
     "topic": "Deployment"
   },
   {
-    "benchmark_id": "targ_021",
     "question": "What conclusion does the paper draw about unconditional retrieval?",
-    "expected_sources": [
-      "targ.pdf"
-    ],
+    "document_id": "targ",
     "section_title": "Conclusion",
-    "supporting_pages": [
-      11
-    ],
+    "supporting_pages": [11],
     "expected_answer_span": "Unconditional retrieval is not a safe default because distractor passages can reduce both quality and efficiency.",
     "difficulty": "Easy",
     "topic": "Conclusion"
   },
   {
-    "benchmark_id": "targ_022",
     "question": "What is the principal contribution of TARG according to the conclusion?",
-    "expected_sources": [
-      "targ.pdf"
-    ],
+    "document_id": "targ",
     "section_title": "Conclusion",
-    "supporting_pages": [
-      11
-    ],
+    "supporting_pages": [11],
     "expected_answer_span": "A plug-and-play, training-free gating mechanism that decides when retrieval should occur using only a short prefix.",
     "difficulty": "Easy",
     "topic": "Contribution"

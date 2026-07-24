@@ -5385,7 +5385,19 @@ from dataclasses import dataclass
 from math import isfinite 
 from typing import Any, Iterable, Protocol, Sequence, runtime_checkable 
 
-from retrieval import BaseRetriever, RetrievalResult 
+from benchmark.benchmark_models import Benchmark, BenchmarkQuery
+
+from module_loader import load 
+
+retrieval = load(
+    "retrieval_runtime",
+    "retrieval.py"
+)
+
+BaseRetriever = retrieval.BaseRetriever
+RetrievalResult = retrieval.RetrievalResult
+RetrievedDocument = retrieval.RetrievedDocument 
+
 
 # ----------------------------------------------------------
 # Benchmark
@@ -5488,6 +5500,8 @@ class RetrievalVerification:
     first_correct_rank: int | None 
 
     retrieved_document_count: int 
+    
+    hit_at_k: bool 
 
 
 # ---------------------------------------------------
@@ -5536,18 +5550,19 @@ class RetrievalVerificationResult:
                     "Metric must lie in [0,1]."
                 )
             
-        if (
-            self.mean_first_correct_rank 
-            is not None 
-            and not isfinite(
-                self.mean_first_correct_rank 
-            )
-            or 
-            self.mean_first_correct_rank <= 0
-        ): 
-            raise ValueError(
-                "Invalid mean_first_correct_rank."
-            )
+        if self.mean_first_correct_rank is not None:
+
+            if not isfinite(
+                self.mean_first_correct_rank
+            ):
+                raise ValueError(
+                    "Invalid mean_first_correct_rank."
+                )
+            
+            if self.mean_first_correct_rank <= 0:
+                raise ValueError(
+                    "Invalid mean_first_correct_rank."
+                )
     
 
     # --------------------------------------------------------
@@ -5627,7 +5642,7 @@ class RetrievalVerificationRunner:
     ) -> RetrievalVerification: 
         
         retrieval = self.retriever.retrieve(
-            query=benchmark.query,
+            query=benchmark.question,
             top_k=self.top_k,
         )
 
@@ -5642,8 +5657,11 @@ class RetrievalVerificationRunner:
 
             source = (
                 document.metadata
-                .get("source")
+                .get("source").strip()
             )
+
+            if not source.endswith(".pdf"):
+                source += ".pdf"
 
             if (
                 not isinstance(source, str)
@@ -5667,12 +5685,12 @@ class RetrievalVerificationRunner:
             len(retrieved_sources) > 0
             and 
             retrieved_sources[0]
-            in benchmark.expected_sources 
+            in benchmark.expected_source 
         )
 
         hit_at_k = any(
             source
-            in benchmark.expected_sources 
+            in benchmark.expected_source 
             for source in retrieved_sources 
         )
 
@@ -5685,7 +5703,7 @@ class RetrievalVerificationRunner:
             
             if (
                 source
-                in benchmark.expected_sources
+                in benchmark.expected_source
             ): 
                 first_rank = index 
                 break 
@@ -5695,8 +5713,9 @@ class RetrievalVerificationRunner:
             retrieval=retrieval,
             retrieved_sources=retrieved_sources,
             top1_correct=top1_correct,
-            hit_at_k=hit_at_k,
             first_correct_rank=first_rank,
+            retrieved_document_count=len(retrieval.documents),
+            hit_at_k=hit_at_k,
         )
     
     # -----------------------------------------------------------
@@ -5743,62 +5762,50 @@ class RetrievalVerificationRunner:
     
     # ---------------------------------------------------
 
-    @staticmethod 
     def _materialize(
-        benchmarks:
-        Iterable[RetrievalBenchmark],
-    ) -> tuple[RetrievalBenchmark, ...]:
-        
-        if benchmarks is None:
+        self,
+        benchmarks: Benchmark,
+    ) -> tuple[BenchmarkQuery, ...]:
+        """
+        Validate and materialize a Benchmark into an immutable
+        sequence of BenchmarkQuery objects.
+        """
+
+        if not isinstance(benchmarks, Benchmark):
             raise TypeError(
-                "benchmarks must not be None."
+                "Expected Benchmark."
             )
-        
-        benchmarks = tuple(
-            benchmarks 
-        )
 
-        if not benchmarks:
+        queries = tuple(benchmarks.queries)
+
+        if not queries:
             raise ValueError(
-                "At least on bencmark "
-                "is required."
+                "At least one benchmark is required."
             )
-        
-        seen = set()
 
-        for benchmark in benchmarks: 
+        seen: set[str] = set()
+
+        for query in queries:
 
             if not isinstance(
-                benchmark,
-                RetrievalBenchmark,
-            ): 
-                raise TypeError(
-                    "Expected RetrievalBenchmark."
-                )
-            
-            if (
-                benchmark.benchmark_id
-                in seen 
+                query,
+                BenchmarkQuery,
             ):
                 raise TypeError(
-                    "Expected RetrievalBenchmark."
+                    "Expected BenchmarkQuery."
                 )
-            
-            if (
-                benchmark.benchmark_id
-                in seen 
-            ):
+
+            if query.benchmark_id in seen:
                 raise ValueError(
-                    "Duplicate benchmark_id: "
-                    f"{benchmark.benchmark_id}"
+                    f"Duplicate benchmark_id: "
+                    f"{query.benchmark_id}"
                 )
-            
+
             seen.add(
-                benchmark.benchmark_id
+                query.benchmark_id
             )
 
-        return benchmarks 
-
+        return queries 
 ==========================
 targ/rag/corpus_builder.py
 ==========================
@@ -8500,3 +8507,441 @@ class RetrievalRunner:
             raise TypeError(
                 "retrieval_inspector cannot be None."
             )
+
+===========================================
+scripts/build_authoritative_vector_store.py
+===========================================
+"""
+build_athoritative_vector_store.py
+
+Build the persistent FAISS index for the authoritative TARG corpus.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path 
+
+from langchain_community.vectorstores import FAISS
+from langchain_huggingface import HuggingFaceEmbeddings 
+
+from corpus.chunker import Chunker 
+from corpus.representative_corpus import RepresentativeCorpusBuilder
+from corpus.vector_store_builder import VectorStoreBuilder
+
+# -------------------------------------------------------
+# Paths
+# -------------------------------------------------------
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+PDF_DIRECTORY = PROJECT_ROOT / "rag" / "knowledge"
+
+VECTOR_STORE_DIRECTORY = (
+    PROJECT_ROOT
+    / "rag"
+    / "vector_stores"
+    / "authoritative_faiss"
+)
+
+# --------------------------------------------------------
+# Configuration
+# --------------------------------------------------------
+
+EMBEDDING_MODEL_NAME = "intfloat/e5-base-v2"
+
+CHUNK_SIZE = 1000
+
+CHUNK_OVERLAP = 100
+
+MINIMUM_CHUNK_SIZE = 200
+
+# --------------------------------------------------------
+# Build pipeline
+# --------------------------------------------------------
+
+def build_authoritative_vector_store() -> None: 
+    """
+    Load, chunk, embed, and persist the authoritative PDF corpus.
+    """
+
+    corpus_builder = RepresentativeCorpusBuilder(
+        pdf_directory=PDF_DIRECTORY,
+    )
+
+    corpus_documents = corpus_builder.build()
+
+    if not corpus_documents:
+        raise RuntimeError(
+            "No corpus documents were produced from the PDF directory."
+        )
+    
+    chunker = Chunker(
+        chunk_size=CHUNK_SIZE,
+        chunk_overlap=CHUNK_OVERLAP,
+        minimum_chunk_size=MINIMUM_CHUNK_SIZE,
+    )
+
+    chunks = chunker.chunk_documents(
+        corpus_documents,
+    )
+
+    if not chunks:
+        raise RuntimeError(
+            "No chunks were produced from the authoritative corpus."
+        )
+    
+    embedding_model = HuggingFaceEmbeddings(
+        model_name=EMBEDDING_MODEL_NAME,
+        # encode_kwargs={
+        #     "normalized_embeddings": True,
+        # },
+    )
+
+    vector_store_builder = VectorStoreBuilder(
+        embedding_model=embedding_model,
+        vector_store_class=FAISS,
+    )
+
+    vector_store = vector_store_builder.build(
+        chunks,
+    )
+
+    VECTOR_STORE_DIRECTORY.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    vector_store.save_local(
+        str(VECTOR_STORE_DIRECTORY),
+    )
+
+    print(
+        f"Corpus documents: {len(corpus_documents)}"
+    )
+
+    print(
+        f"Chunks indexed: {len(chunks)}"
+    )
+
+    print(
+        f"Vector store saved to: {VECTOR_STORE_DIRECTORY}"
+    )
+
+if __name__ == "__main__":
+    build_authoritative_vector_store()
+
+=============================
+measure_retrieval_accuracy.py
+=============================
+"""
+measure_retrieval_accuracy.py
+
+Run retrieval verification over the benchmark suite.
+
+Responsibilities
+----------------
+1. Load benchmark queries.
+2. Execute retrieval verification.
+3. Print aggregate retrieval metrics.
+4. Save deterministic JSON results.
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import asdict
+from pathlib import Path
+import os 
+from dotenv import load_dotenv 
+
+from benchmark.benchmark_loader import BenchmarkLoader
+
+from module_loader import load 
+
+retrieval = load(
+    "retrieval_runtime",
+    "retrieval.py"
+)
+
+
+VectorRetriever = retrieval.VectorRetriever
+RetrievalResult = retrieval.RetrievalResult 
+
+from retrieval_verification import RetrievalVerificationRunner
+
+from langchain_huggingface import HuggingFaceEmbeddings 
+from langchain_community.vectorstores import FAISS 
+
+
+load_dotenv()
+
+root_path = os.getenv("DATA_PATH")
+
+def main() -> None:
+
+    benchmark_loader = BenchmarkLoader(
+        benchmark_path=os.path.join(root_path, "benchmark", "benchmark_queries.json"),
+    )
+
+    benchmarks = benchmark_loader.load()
+
+    embeddings = HuggingFaceEmbeddings(
+        model_name="intfloat/e5-base-v2",
+        model_kwargs={
+            "device": "cpu",
+        },
+        encode_kwargs={
+            "normalize_embeddings": True,
+        },
+    )
+
+    vector_store = FAISS.load_local(
+        folder_path=os.path.join(
+            root_path,
+            "rag",
+            "vector_stores",
+            "authoritative_faiss",
+        ),
+        embeddings=embeddings,
+        allow_dangerous_deserialization=True,
+    )
+
+    retriever = VectorRetriever(
+        vector_store=vector_store,
+    )
+
+    runner = RetrievalVerificationRunner(
+        retriever=retriever,
+        top_k=5,
+    )
+
+    results = runner.run(benchmarks)
+
+    print("\nRetrieval Verification Results")
+    print("-" * 40)
+
+    print(
+        f"Benchmarks               : "
+        f"{results.benchmark_count}"
+    )
+
+    print(
+        f"Top-1 Source Accuracy    : "
+        f"{results.top1_accuracy:.3f}"
+    )
+
+    print(
+        f"Hit@K                    : "
+        f"{results.hit_at_k:.3f}"
+    )
+
+    mean_rank_display = (
+        "N/A"
+        if results.mean_first_correct_rank is None
+        else f"{results.mean_first_correct_rank:.3f}"
+    )
+
+    print(
+        f"Mean First Correct Rank  : "
+        f"{mean_rank_display}"
+    )
+
+    output = {
+        "summary": {
+            "benchmark_count":
+                results.benchmark_count,
+
+            "top1_accuracy":
+                results.top1_accuracy,
+
+            "hit_at_k":
+                results.hit_at_k,
+
+            "mean_first_correct_rank":
+                results.mean_first_correct_rank,
+        },
+
+        "verifications": [
+            asdict(verification)
+            for verification in results.verifications
+        ],
+    }
+
+    output_path = Path(
+        "retrieval_verification_results.json"
+    )
+
+    output_path.write_text(
+        json.dumps(
+            output,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    print(
+        f"\nResults written to {output_path}"
+    )
+
+
+if __name__ == "__main__":
+    main()
+
+=====================
+targ/module_loader.py
+=====================
+"""
+Centralized runtime loader.
+
+Loads standalone module exactly once to avoid duplicate class identities.
+"""
+
+from __future__ import annotations 
+
+import importlib.util 
+import sys 
+from pathlib import Path 
+from types import ModuleType 
+
+_ROOT = Path(__file__).resolve().parent 
+_CACHE: dict[str, ModuleType] = {}
+
+def load(module_name: str, filename: str) -> ModuleType:
+    """
+    Load a standalone module exactly once.
+
+    Parameters
+    ----------
+    module_name:
+        Unique runtime name. 
+
+    filename:
+        Filename relative to this directory.
+    """
+
+    if module_name in _CACHE:
+        return _CACHE[module_name]
+    
+    module_path = _ROOT / filename 
+
+    spec = importlib.util.spec_from_file_location(
+        module_name,
+        module_path,
+    )
+
+    if spec is None or spec.loader is None: 
+        raise ImportError(f"Unable to load {filename}")
+    
+    module = importlib.util.module_from_spec(spec)
+
+    sys.modules[module_name] = module 
+
+    spec.loader.exec_module(module)
+
+    _CACHE[module_name] = module 
+
+    return module 
+
+===============================
+targ/run_retrieval_benchmark.py
+===============================
+import os
+
+from dotenv import load_dotenv
+from langchain_openai import OpenAIEmbeddings
+from langchain_community.vectorstores import FAISS
+from langchain_huggingface import HuggingFaceEmbeddings
+
+from benchmark.benchmark_loader import BenchmarkLoader
+from retrieval.retrieval_inspector import RetrievalInspector
+from retrieval.retrieval_runner import RetrievalRunner
+
+
+def main() -> None:
+    load_dotenv()
+
+    openai_api_key = os.getenv("OPENAI_API_KEY")
+
+    if not openai_api_key:
+        raise RuntimeError(
+            "OPENAI_API_KEY is not defined in the environment or .env file."
+        )
+
+    os.environ["OPENAI_API_KEY"] = openai_api_key
+    os.environ["LANGCHAIN_TRACING_V2"] = "false"
+
+    langchain_api_key = os.getenv("LANGCHAIN_API_KEY")
+
+    if langchain_api_key:
+        os.environ["LANGCHAIN_API_KEY"] = langchain_api_key
+        os.environ["LANGCHAIN_ENDPOINT"] = (
+            "https://api.smith.langchain.com"
+        )
+
+    # -------------------------------------------------
+    # Benchmark loader
+    # -------------------------------------------------
+
+    benchmark_loader = BenchmarkLoader(
+        benchmark_path="benchmark/benchmark_queries.json",
+    )
+
+    # -------------------------------------------------
+    # Embedding model
+    # -------------------------------------------------
+
+    embeddings = HuggingFaceEmbeddings(
+        model_name="intfloat/e5-base-v2",
+        model_kwargs={"device":"cpu"},
+        encode_kwargs={"normalize_embeddings": True},
+    )
+
+
+    # -------------------------------------------------
+    # Load persisted FAISS vector store
+    #
+    # This directory must contain:
+    #   index.faiss
+    #   index.pkl
+    # -------------------------------------------------
+
+    vector_store = FAISS.load_local(
+        folder_path="rag/vector_stores/authoritative_faiss",
+        embeddings=embeddings,
+        allow_dangerous_deserialization=True,
+    )
+
+    # -------------------------------------------------
+    # Retrieval inspector
+    # -------------------------------------------------
+
+    retrieval_inspector = RetrievalInspector(
+        vector_store=vector_store,
+        top_k=5,
+    )
+
+    # -------------------------------------------------
+    # Retrieval runner
+    # -------------------------------------------------
+
+    runner = RetrievalRunner(
+        benchmark_loader=benchmark_loader,
+        retrieval_inspector=retrieval_inspector,
+    )
+
+    # -------------------------------------------------
+    # Run and save
+    # -------------------------------------------------
+
+    inspections = runner.run_and_save(
+        output_path="retrieval/retrieval_results.json",
+    )
+
+    print(
+        f"Completed {len(inspections)} benchmark queries."
+    )
+
+
+if __name__ == "__main__":
+    main()
+

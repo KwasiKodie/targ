@@ -117,15 +117,11 @@ class BenchmarkLoader:
         self._validate_fields(item)
 
         return BenchmarkQuery(
+            benchmark_id=item["benchmark_id"],
             question=item["question"],
-            document_id=item["document_id"],
-            section_title=item["section_title"],
-            supporting_pages=tuple(
-                item["supporting_pages"]
-            ),
-            expected_answer_span=item[
-                "expected_answer_span"
-            ],
+            expected_source=tuple(item["expected_sources"]),
+            supporting_pages=tuple(item["supporting_pages"]),
+            expected_answer_span=item["expected_answer_span"],
             difficulty=item["difficulty"],
             topic=item["topic"],
         )
@@ -163,9 +159,9 @@ class BenchmarkLoader:
         """
 
         required = (
+            "benchmark_id",
             "question",
-            "document_id",
-            "section_title",
+            "expected_sources",
             "supporting_pages",
             "expected_answer_span",
             "difficulty",

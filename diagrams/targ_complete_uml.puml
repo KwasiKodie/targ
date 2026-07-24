@@ -1,0 +1,746 @@
+@startuml
+left to right direction
+skinparam classAttributeIconSize 0
+skinparam shadowing false
+skinparam packageStyle rectangle
+package "Generation and uncertainty" {
+interface "TokenizerProtocol\n(rarg/draft_generator.py)" as rarg_draft_generator_TokenizerProtocol {
+  + eos_token_id: Optional[int]
+  + pad_token_id: Optional[int]
+  + __call__(text: str): Mapping[str, Tensor]
+  + decode(token_ids: Sequence[int] | Tensor): str
+}
+class "DraftStep\n(rarg/draft_generator.py)" as rarg_draft_generator_DraftStep {
+  + position: int
+  + token_id: int
+  + logits: Tensor
+  + top1_logit: float
+  + top2_logit: float
+  + logit_margin: float
+}
+class "DraftOutput\n(rarg/draft_generator.py)" as rarg_draft_generator_DraftOutput {
+  + base_prompt: str
+  + prompt_input_ids: Tensor
+  + prompt_attention_mask: Tensor
+  + generated_token_ids: Tensor
+  + generated_text: str
+  + steps: tuple[DraftStep, ...]
+  + requested_prefix_length: int
+  + actual_prefix_length: int
+  + stopped_on_eos: bool
+  + stopped_on_custom_token: bool
+  + logits(): Tensor
+  + logit_margins(): Tensor
+}
+class "DraftGenerator\n(rarg/draft_generator.py)" as rarg_draft_generator_DraftGenerator {
+  - _model: Any
+  - _tokenizer: Any
+  - _prefix_length: Any
+  - _stop_token_ids: Any
+  - _add_special_tokens: Any
+  - _use_cache: Any
+  - _clone_logits_to_cpu: Any
+  + __init__(): None
+  + prefix_length(): int
+  + device(): torch.device
+  + generate(base_prompt: str): DraftOutput
+  - _validate_prompt(base_prompt: str): str
+  - _tokenize(base_prompt: str): dict[str, Tensor]
+  - _forward(): Any
+  - _extract_next_token_logits(outputs: Any): Tensor
+  - _build_step(): DraftStep
+  - _is_eos(token_id: int): bool
+}
+class "TokenMarginScore" as targ_margin_uncertainty_TokenMarginScore {
+  + position: int
+  + token_id: int
+  + top1_logit: float
+  + top2_logit: float
+  + margin: float
+  + uncertainty: float
+}
+class "MarginUncertaintyResult" as targ_margin_uncertainty_MarginUncertaintyResult {
+  + beta: float
+  + score: float
+  + token_scores: tuple[TokenMarginScore, ...]
+  + token_count: int
+  + mean_margin: float
+  + minimum_margin: float
+  + maximum_margin: float
+  + minimum_uncertainty: float
+  + maximum_uncertainty: float
+  + margins(): tuple[float, ...]
+  + uncertainties(): tuple[float, ...]
+  + as_dict(): dict[str, object]
+}
+class "MarginUncertaintyScorer" as targ_margin_uncertainty_MarginUncertaintyScorer {
+  + DEFAULT_BETA: float = 3.0
+  - _beta: Any
+  + __init__(): None
+  + beta(): float
+  + score(draft: DraftOutput): MarginUncertaintyResult
+  + score_logits(): MarginUncertaintyResult
+  + compute_margin(logits: Tensor): Tensor
+  + margin_to_uncertainty(margin: Tensor | float): Tensor
+  + aggregate_uncertainties(uncertainties: Tensor | Sequence[float]): float
+  - {static} _validate_beta(beta: float): float
+  - {static} _validate_draft(draft: DraftOutput): None
+  - {static} _validate_logits(logits: Tensor): Tensor
+  - {static} _validate_margins(margins: Tensor): None
+  - {static} _normalize_token_ids(): tuple[int, ...]
+}
+interface "TokenizerProtocol\n(targ/answer_generator.py)" as targ_answer_generator_TokenizerProtocol {
+  + eos_token_id: int | None
+  + __call__(text: str): Any
+  + decode(token_ids: Any): str
+}
+class "AnswerOutput" as targ_answer_generator_AnswerOutput {
+  + query: str
+  + prompt: str
+  + prompt_input_ids: Tensor
+  + prompt_attention_mask: Tensor
+  + generated_token_ids: Tensor
+  + generated_text: str
+  + requested_max_new_tokens: int
+  + actual_generated_tokens: int
+  + stopped_on_eos: bool
+  + used_retrieval: bool
+  + retrieved_document_count: int
+  + answer_length(): int
+}
+class "AnswerGenerator" as targ_answer_generator_AnswerGenerator {
+  - model: Any
+  - tokenizer: Any
+  - max_new_tokens: Any
+  - add_special_tokens: Any
+  + __init__(): Any
+  + device(): Any
+  + generate(): AnswerOutput
+  - _build_prompt(): str
+  - {static} _validate_query(query: str): str
+}
+interface "TokenizerProtocol\n(targ/draft_generator.py)" as targ_draft_generator_TokenizerProtocol {
+  + eos_token_id: Optional[int]
+  + pad_token_id: Optional[int]
+  + __call__(text: str): Mapping[str, Tensor]
+  + decode(token_ids: Sequence[int] | Tensor): str
+}
+class "DraftStep\n(targ/draft_generator.py)" as targ_draft_generator_DraftStep {
+  + position: int
+  + token_id: int
+  + logits: Tensor
+  + top1_logit: float
+  + top2_logit: float
+  + logit_margin: float
+}
+class "DraftOutput\n(targ/draft_generator.py)" as targ_draft_generator_DraftOutput {
+  + base_prompt: str
+  + prompt_input_ids: Tensor
+  + prompt_attention_mask: Tensor
+  + generated_token_ids: Tensor
+  + generated_text: str
+  + steps: tuple[DraftStep, ...]
+  + requested_prefix_length: int
+  + actual_prefix_length: int
+  + stopped_on_eos: bool
+  + stopped_on_custom_token: bool
+  + logits(): Tensor
+  + logit_margins(): Tensor
+}
+class "DraftGenerator\n(targ/draft_generator.py)" as targ_draft_generator_DraftGenerator {
+  - _model: Any
+  - _tokenizer: Any
+  - _prefix_length: Any
+  - _stop_token_ids: Any
+  - _add_special_tokens: Any
+  - _use_cache: Any
+  - _clone_logits_to_cpu: Any
+  + __init__(): None
+  + prefix_length(): int
+  + device(): torch.device
+  + generate(base_prompt: str): DraftOutput
+  - _validate_prompt(base_prompt: str): str
+  - _tokenize(base_prompt: str): dict[str, Tensor]
+  - _forward(): Any
+  - _extract_next_token_logits(outputs: Any): Tensor
+  - _build_step(): DraftStep
+  - _is_eos(token_id: int): bool
+}
+}
+package "TARG runtime" {
+enum "RetrievalDecisionReason" as targ_retrieval_gate_RetrievalDecisionReason {
+  + RETRIEVAL_REQUIRED: Any = 'retrieval_required'
+  + RETRIEVAL_NOT_REQUIRED: Any = 'retrieval_not_required'
+}
+class "RetrievalDecision" as targ_retrieval_gate_RetrievalDecision {
+  + retrieve: bool
+  + uncertainty_score: float
+  + threshold: float
+  + margin_type: str
+  + calibration_method: str
+  + reason: RetrievalDecisionReason
+  + explanation: str
+}
+class "RetrievalGate" as targ_retrieval_gate_RetrievalGate {
+  - calibration: Any
+  + __init__(calibration: CalibrationResult): Any
+  + decide(uncertainty_score: float): RetrievalDecision
+  - {static} _validate_score(score: float): None
+  - {static} _validate_calibration(calibration: CalibrationResult): None
+}
+class "RetrievedDocument" as targ_retrieval_RetrievedDocument {
+  + id: str
+  + text: str
+  + score: float
+  + metadata: dict
+}
+class "RetrievalResult" as targ_retrieval_RetrievalResult {
+  + query: str
+  + documents: list[RetrievedDocument]
+  + retrieved: bool
+  + retrieval_backend: str
+}
+abstract class "BaseRetriever" as targ_retrieval_BaseRetriever {
+  - {static} _validate_request(query: str, top_k: int): tuple[str, int]
+  + {abstract} retrieve(query: str, top_k: int): RetrievalResult
+}
+class "VectorRetriever" as targ_retrieval_VectorRetriever {
+  - vector_store: Any
+  + __init__(vector_store: Any): Any
+  + retrieve(query: str, top_k: int): RetrievalResult
+}
+class "PipelineResult" as targ_targ_pipeline_PipelineResult {
+  + query: str
+  + retrieval: RetrievalResult
+  + answer: str
+}
+class "TARGPipeline" as targ_targ_pipeline_TARGPipeline {
+  - draft_generator: Any
+  - scorer: Any
+  - gate: Any
+  - retriever: Any
+  - answer_generator: Any
+  + __init__(draft_generator: DraftGenerator, scorer: MarginUncertaintyScorer, gate: RetrievalGate, retriever: BaseRetriever, answer_generator: AnswerGenerator): Any
+  + run(query: str): PipelineResult
+}
+class "RetrievalBenchmark" as targ_retrieval_verification_RetrievalBenchmark {
+  + benchmark_id: str
+  + query: str
+  + expected_sources: tuple[str, ...]
+  + __post_init__(): None
+  - {static} _validate_text(value: str, field: str): str
+}
+class "RetrievalVerification" as targ_retrieval_verification_RetrievalVerification {
+  + benchmark: RetrievalBenchmark
+  + retrieval: RetrievalResult
+  + retrieved_sources: tuple[str, ...]
+  + top1_correct: bool
+  + first_correct_rank: int | None
+  + retrieved_document_count: int
+  + hit_at_k: bool
+}
+class "RetrievalVerificationResult" as targ_retrieval_verification_RetrievalVerificationResult {
+  + verifications: tuple[RetrievalVerification, ...]
+  + top1_accuracy: float
+  + hit_at_k: float
+  + mean_first_correct_rank: float | None
+  + benchmark_count(): int
+  + __post_init__(): None
+  + __post_init__(): None
+}
+class "RetrievalVerificationRunner" as targ_retrieval_verification_RetrievalVerificationRunner {
+  - retriever: Any
+  - top_k: Any
+  + __init__(): Any
+  + run(benchmarks: Iterable[RetrievalBenchmark]): RetrievalVerification
+  - _verify_benchmark(benchmark: RetrievalBenchmark): RetrievalVerification
+  - {static} _summarise(verifications: Sequence[RetrievalVerification]): RetrievalVerificationResult
+  - _materialize(benchmarks: Benchmark): tuple[BenchmarkQuery, ...]
+}
+}
+package "Experiment and calibration" {
+enum "CalibrationMode" as targ_threshold_calibrator_CalibrationMode {
+  + MAXIMIZE_ACCURACY: Any = 'maximize_accuracy'
+  + TARGET_RETRIEVAL_BUDGET: Any = 'target_retrieval_budget'
+}
+class "DevelopmentExample" as targ_threshold_calibrator_DevelopmentExample {
+  + example_id: str
+  + uncertainty_score: float
+  + no_retrieval_score: float
+  + retrieval_score: float
+  + metadata: Mapping[str, object] | None = None
+  + retrieval_gain(): float
+}
+class "ThresholdEvaluation" as targ_threshold_calibrator_ThresholdEvaluation {
+  + threshold: float
+  + gated_score: float
+  + retrieval_rate: float
+  + retrieved_count: int
+  + skipped_count: int
+  + mean_selected_gain: float
+  + no_retrieval_baseline: float
+  + always_retrieval_baseline: float
+}
+class "CalibrationResult" as targ_threshold_calibrator_CalibrationResult {
+  + threshold: float
+  + mode: str
+  + development_size: int
+  + achieved_score: float
+  + achieved_retrieval_rate: float
+  + target_retrieval_rate: float | None
+  + no_retrieval_score: float
+  + always_retrieval_score: float
+  + beta: float
+  + prefix_length: int
+  + gate_name: str
+  + metric_name: str
+  + calibrated_at: str
+  + schema_version: int = 1
+  + as_dict(): dict[str, object]
+}
+class "ThresholdCalibrator" as targ_threshold_calibrator_ThresholdCalibrator {
+  - _gate_name: Any
+  - _metric_name: Any
+  - _beta: Any
+  - _prefix_length: Any
+  - _tie_breaker: Any
+  + __init__(): None
+  + calibrate_for_accuracy(examples: Iterable[DevelopmentExample]): CalibrationResult
+  + calibrate_for_budget(examples: Iterable[DevelopmentExample]): CalibrationResult
+  + sweep(examples: Iterable[DevelopmentExample]): tuple[ThresholdEvaluation, ...]
+  + evaluate_threshold(examples: Iterable[DevelopmentExample]): ThresholdEvaluation
+  + save(result: CalibrationResult, path: str | Path): Path
+  + {static} load(path: str | Path): CalibrationResult
+  - _select_best_accuracy_evaluation(evaluations: Sequence[ThresholdEvaluation]): ThresholdEvaluation
+  - _build_result(): CalibrationResult
+  - {static} _routing_complete_thresholds(examples: Sequence[DevelopmentExample]): tuple[float, ...]
+  - {static} _empirical_quantile(): float
+  - {static} _validate_examples(cls: Any, examples: Iterable[DevelopmentExample]): tuple[DevelopmentExample, ...]
+  - {static} _validate_thresholds(cls: Any, thresholds: Sequence[float]): tuple[float, ...]
+  - {static} _validate_loaded_result(result: CalibrationResult): None
+  - {static} _validate_probability(value: float, name: str): float
+  - {static} _validate_positive_finite(value: float, name: str): float
+  - {static} _validate_positive_integer(value: int, name: str): int
+  - {static} _validate_finite_number(value: float, name: str): float
+  - {static} _validate_nonempty_text(value: str, name: str): str
+}
+class "DevelopmentRecord" as rag_development_record_DevelopmentRecord {
+  + example_id: str
+  + question: str
+  + reference_answer: str
+  + __post_init__(): None
+  - {static} _validate(value: str, field_name: str): str
+}
+class "RetrievalComparison" as targ_retrieval_comparison_RetrievalComparison {
+  + example_id: str
+  + question: str
+  + reference_answer: str
+  + uncertainty_score: float
+  + retrieval_result: RetrievalResult
+  + no_retrieval_output: AnswerOutput
+  + retrieval_output: AnswerOutput
+  + no_retrieval_evaluation: EvaluationResult
+  + retrieval_evaluation: EvaluationResult
+  + no_retrieval_score(): float
+  + retrieval_score(): float
+  + retrieval_no_effect(): bool
+  + improvement(): float
+  + retrieval_helped(): bool
+  + retrieval_hurt(): bool
+  + calibration_example(): Any
+  + preferred_answer(): AnswerOutput
+  + retrieved_documents(): Any
+  + retrieved_document_count(): int
+  + retrieval_performed(): bool
+}
+interface "DevelopmentRecordProtocol" as targ_stage2_5_experiment_DevelopmentRecordProtocol {
+  + example_id(): str
+  + question(): str
+  + reference_answer(): str
+}
+interface "DraftGeneratorProtocol" as targ_stage2_5_experiment_DraftGeneratorProtocol {
+  + generate(query: str): Any
+}
+interface "UncertaintyScorerProtocol" as targ_stage2_5_experiment_UncertaintyScorerProtocol {
+  + score(draft_output: Any): Any
+}
+interface "RetrieverProtocol" as targ_stage2_5_experiment_RetrieverProtocol {
+  + retrieve(query: str): Any
+}
+class "ExperimentResult" as targ_stage2_5_experiment_ExperimentResult {
+  + comparisons: tuple[RetrievalComparison, ...]
+  + development_examples: tuple[Any, ...]
+  + mean_no_retrieval_score: float
+  + mean_retrieval_score: float
+  + mean_improvement: float
+  + retrieval_helped_count: int
+  + retrieval_hurt_count: int
+  + retrieval_no_effect_count: int
+  + example_count(): int
+  + retrieval_help_rate(): float
+  + retrieval_no_effect_rate(): float
+  + retrieval_improvement(): float
+  + __post_init__(): None
+}
+class "Stage2_5ExperimentRunner" as targ_stage2_5_experiment_Stage2_5ExperimentRunner {
+  - draft_generator: Any
+  - uncertainty_scorer: Any
+  - answer_generator: Any
+  - retriever: Any
+  - answer_evaluator: Any
+  + __init__(): None
+  + run(): ExperimentResult
+  - _run_example(record: DevelopmentRecord): RetrievalComparison
+  - _generate_without_retrieval(): AnswerOutput
+  - _generate_with_retrieval(): AnswerOutput
+  - _evaluate(): EvaluationResult
+  - _summarise_results(): ExperimentResult
+  - {static} _extract_uncertainty_score(uncertainty_result: Any): float
+  - {static} _materialize_dataset(development_dataset: Iterable[DevelopmentRecord]): tuple[DevelopmentRecord, ...]
+  - {static} _validate_component(): None
+  - {static} _validate_example_id(value: Any): str
+  - {static} _validate_text(): str
+  - {static} _validate_answer_output(): None
+  - {static} _validate_comparison(): None
+}
+}
+package "Answer evaluation" {
+enum "EvaluationMetric" as targ_answer_evaluator_EvaluationMetric {
+  + EXACT_MATCH: Any = 'exact_match'
+}
+class "MetricResult" as targ_answer_evaluator_MetricResult {
+  + metric: EvaluationMetric
+  + score: float
+}
+class "EvaluationResult" as targ_answer_evaluator_EvaluationResult {
+  + reference_answer: str
+  + candidate_answer: str
+  + normalized_reference: str
+  + normalized_candidate: str
+  + metric_results: tuple[MetricResult, ...]
+  + overall_score: float
+  + metrics(): dict[str, float]
+  + matched_after_normalization(): bool
+}
+abstract class "BaseAnswerEvaluator" as targ_answer_evaluator_BaseAnswerEvaluator {
+  + {abstract} evaluate(): EvaluationResult
+}
+class "AnswerEvaluator" as targ_answer_evaluator_AnswerEvaluator {
+  + evaluate(): EvaluationResult
+  - {static} _exact_match(normalized_reference: str, normalized_candidate: str): float
+  - {static} _normalize(text: str): str
+  - {static} _validate_text(text: str, name: str): str
+}
+}
+package "Integrated corpus builder" {
+class "CorpusDocumentSpec" as targ_rag_corpus_builder_CorpusDocumentSpec {
+  + corpus_id: str
+  + filename: str
+  + title: str
+  + category: str
+  + __post_init__(): None
+  - {static} _validate_text(value: str, field_name: str): str
+  - {static} _validate_filename(cls: Any, value: str): str
+}
+class "CorpusChunkingConfig" as targ_rag_corpus_builder_CorpusChunkingConfig {
+  + chunk_size: int = 1000
+  + chunk_overlap: int = 100
+  + minimum_chunk_size: int = 200
+  + separators: tuple[str, ...] = ('\n\n', '\n', '. ', ' ', '')
+  + __post_init__(): None
+}
+class "CorpusSourceSummary" as targ_rag_corpus_builder_CorpusSourceSummary {
+  + corpus_id: str
+  + source: str
+  + title: str
+  + page_count: int
+  + extracted_character_count: int
+  + chunk_count: int
+}
+class "CorpusBuildResult" as targ_rag_corpus_builder_CorpusBuildResult {
+  + documents: tuple[Document, ...]
+  + source_summaries: tuple[CorpusSourceSummary, ...]
+  + total_source_count: int
+  + total_page_count: int
+  + total_chunk_count: int
+  + total_character_count: int
+  + corpus_fingerprint: str
+  + chunking_config: CorpusChunkingConfig
+  + __post_init__(): None
+}
+class "RepresentativeCorpusBuilder\n(targ/rag/corpus_builder.py)" as targ_rag_corpus_builder_RepresentativeCorpusBuilder {
+  - _corpus_directory: Any
+  - _specifications: Any
+  - _config: Any
+  - _splitter: Any
+  + __init__(): None
+  + corpus_directory(): Path
+  + specifications(): tuple[CorpusDocumentSpec, ...]
+  + config(): CorpusChunkingConfig
+  + build(): CorpusBuildResult
+  - _process_source(specification: CorpusDocumentSpec): tuple[tuple[Document, ...], CorpusSourceSummary]
+  - _validate_source_files(): None
+  - {static} _normalize_text(text: str): str
+  - {static} _resolve_page_number(metadata: Mapping[str, object], fallback_page_index: int): int
+  - {static} _create_chunk_id(): str
+  - {static} _create_corpus_fingerprint(documents: Iterable[Document]): str
+  - {static} _validate_chunk_ids(documents: Sequence[Document]): None
+  - {static} _validate_directory(value: str | Path): Path
+  - {static} _validate_specifications(specifications: Sequence[CorpusDocumentSpec]): tuple[CorpusDocumentSpec, ...]
+}
+class "targ/rag/corpus_builder.py" as module_targ_rag_corpus_builder_py {
+  + REPRESENTATIVE_CORPUS: tuple[CorpusDocumentSpec, ...] = (CorpusDocumentSpec(corpus_id='self_rag', filename='self_rag.pdf', title='SELF-RAG: LEARNING TO RETRIEVE, GENERATE, AND CRITIQUE THROUGH SELF-REFLECTION', category='rag_research'), CorpusDocumentSpec(corpus_id='adaptive_rag', filename='adaptive_rag.pdf', title='Adaptive-RAG: Learning to Adapt Retrieval-Augmented Large Language Models Through Question Complexity', category='rag_research'), CorpusDocumentSpec(corpus_id='rag_survey', filename='rag_survey.pdf', title='A Comprehensive Survey of Retrieval-Augmented Generation (RAG): Evolution, Current Landscape and Future Directions', category='rag_survey'), CorpusDocumentSpec(corpus_id='targ', filename='targ.pdf', title='Retrieval as a Decision: Training-Free Adaptive Gating for Efficient RAG', category='rag_research'), CorpusDocumentSpec(corpus_id='coala', filename='coala.pdf', title='Cognitive Architectures for Language Agents', category='agent_memory'), CorpusDocumentSpec(corpus_id='nist_sp_800_115', filename='nist_sp_800_115.pdf', title='Technical Guide to Information Security Testing and Assessment', category='security_standard'), CorpusDocumentSpec(corpus_id='ptes', filename='ptes.pdf', title='The Penetration Testing Execution Standard Documentation', category='security_methodology'))
+}
+}
+package "Corpus preprocessing" {
+class "Chunker" as targ_chunker_Chunker {
+  + DEFAULT_CHUNK_SIZE: Any = 1000
+  + DEFAULT_CHUNK_OVERLAP: Any = 100
+  + DEFAULT_MINIMUM_CHUNK_SIZE: Any = 200
+  - chunk_size: Any
+  - chunk_overlap: Any
+  - minimum_chunk_size: Any
+  + __init__(): None
+  + chunk_document(document: CorpusDocument): tuple[Chunk, ...]
+  + chunk_documents(documents: Iterable[CorpusDocument]): tuple[Chunk, ...]
+  - _split_text(text: str): tuple[str, ...]
+  - _build_chunk(): Chunk
+  - _validate_constructor(): None
+  - _validate_document(document: CorpusDocument): None
+}
+class "CorpusDocument\n(targ/corpus_models.py)" as targ_corpus_models_CorpusDocument {
+  + source: str
+  + page: int
+  + text: str
+  + metadata: Mapping[str, Any] = field(default_factory=dict)
+  + __post_init__(): None
+}
+class "Chunk\n(targ/corpus_models.py)" as targ_corpus_models_Chunk {
+  + id: str
+  + source: str
+  + page: int
+  + chunk_index: int
+  + text: str
+  + metadata: Mapping[str, Any]
+  + __post_init__(): None
+}
+class "ChunkMetadata" as targ_chunk_metadata_ChunkMetadata {
+  + {static} chunk_id(): str
+  + {static} build(cls: Any): Mapping[str, Any]
+}
+class "VectorStoreBuilder" as targ_vector_store_builder_VectorStoreBuilder {
+  - embedding_model: Any
+  - vector_store_class: Any
+  + __init__(): None
+  + build(chunks: Iterable[Chunk]): VectorStore
+  - _build_documents(chunks: Iterable[Chunk]): tuple[Document, ...]
+  - _build_vector_store(documents: tuple[Document, ...]): VectorStore
+  - _validate_constructor(): None
+  - _validate_chunks(chunks: Iterable[Chunk]): tuple[Chunk, ...]
+}
+class "CorpusDocument\n(targ/corpus/corpus_models.py)" as targ_corpus_corpus_models_CorpusDocument {
+  + source: str
+  + page: int
+  + text: str
+  + metadata: Mapping[str, Any] = field(default_factory=dict)
+  + __post_init__(): None
+}
+class "Chunk\n(targ/corpus/corpus_models.py)" as targ_corpus_corpus_models_Chunk {
+  + id: str
+  + source: str
+  + page: int
+  + chunk_index: int
+  + text: str
+  + metadata: Mapping[str, Any]
+  + __post_init__(): None
+}
+class "RepresentativeCorpusBuilder\n(targ/corpus/representative_corpus.py)" as targ_corpus_representative_corpus_RepresentativeCorpusBuilder {
+  - pdf_directory: Any
+  + __init__(): None
+  + build(): tuple[CorpusDocument, ...]
+  - _validate_directory(): None
+  - _discover_pdfs(): tuple[Path, ...]
+  - _load_pdf(pdf_path: Path): tuple[CorpusDocument, ...]
+  - _build_document(): CorpusDocument
+  - _sort_documents(documents: Sequence[CorpusDocument]): tuple[CorpusDocument, ...]
+}
+}
+package "Benchmark" {
+class "BenchmarkLoader" as rag_benchmark_benchmark_loader_BenchmarkLoader {
+  - benchmark_path: Any
+  + __init__(): None
+  + load(): Benchmark
+  - _read_json(): list[dict[str, Any]]
+  - _build_query(item: dict[str, Any]): BenchmarkQuery
+  - _validate_constructor(): None
+  - _validate_fields(item: dict[str, Any]): None
+}
+class "BenchmarkQuery" as rag_benchmark_benchmark_models_BenchmarkQuery {
+  + question: str
+  + document_id: str
+  + section_title: str
+  + supporting_pages: tuple[int, ...]
+  + expected_answer_span: str
+  + difficulty: str
+  + topic: str
+  + __post_init__(): None
+  + to_dict(): dict[str, Any]
+}
+class "Benchmark" as rag_benchmark_benchmark_models_Benchmark {
+  + queries: tuple[BenchmarkQuery, ...]
+  + __post_init__(): None
+  + __len__(): int
+  + __iter__(): Any
+  + __getitem__(index: Any): Any
+  + to_dict(): list[dict[str, Any]]
+}
+}
+package "Retrieval inspection" {
+class "RetrievedChunk" as rag_retrieval_retrieval_models_RetrievedChunk {
+  + rank: int
+  + score: float
+  + source: str
+  + page: int
+  + chunk: int
+  + chunk_id: str
+  + text: str
+  + __post__init__(): None
+  + to_dict(): dict[str, Any]
+}
+class "RetrievalInspection" as rag_retrieval_retrieval_models_RetrievalInspection {
+  + query: str
+  + expected_document: str
+  + expected_pages: tuple[int, ...]
+  + retrieved_chunks: tuple[RetrievedChunk, ...]
+  + __post_init__(): None
+  + to_dict(): dict[str, Any]
+}
+class "RetrievalInspector" as rag_retrieval_retrieval_inspector_RetrievalInspector {
+  - vector_store: Any
+  - top_k: Any
+  + __init__(): None
+  + inspect(benchmark_query: BenchmarkQuery): RetrievalInspection
+  - _retrieve(query: str): Any
+  - _build_chunk(): RetrievedChunk
+  - _validate_constructor(): None
+}
+class "RetrievalRunner" as rag_retrieval_retrieval_runner_RetrievalRunner {
+  - benchmark_loader: Any
+  - retrieval_inspector: Any
+  + __init__(): None
+  + run(): tuple[RetrievalInspection, ...]
+  + run_and_save(output_path: str | Path): tuple[RetrievalInspection, ...]
+  + save(): None
+  - _validate_constructor(): None
+}
+}
+package "Scripts and utilities" {
+class "scripts/build_authoritative_vector_store.py" as module_scripts_build_authoritative_vector_store_py {
+  + PROJECT_ROOT: Any = Path(__file__).resolve().parents[1]
+  + PDF_DIRECTORY: Any = PROJECT_ROOT / 'rag' / 'knowledge'
+  + VECTOR_STORE_DIRECTORY: Any = PROJECT_ROOT / 'rag' / 'vector_stores' / 'authoritative_faiss'
+  + EMBEDDING_MODEL_NAME: Any = 'intfloat/e5-base-v2'
+  + CHUNK_SIZE: Any = 1000
+  + CHUNK_OVERLAP: Any = 100
+  + MINIMUM_CHUNK_SIZE: Any = 200
+  + build_authoritative_vector_store(): None
+}
+class "measure_retrieval_accuracy.py" as module_measure_retrieval_accuracy_py {
+  + main(): None
+}
+class "targ/module_loader.py" as module_targ_module_loader_py {
+  + _ROOT: Any = Path(__file__).resolve().parent
+  + _CACHE: dict[str, ModuleType] = {}
+  + load(module_name: str, filename: str): ModuleType
+}
+class "targ/run_retrieval_benchmark.py" as module_targ_run_retrieval_benchmark_py {
+  + main(): None
+}
+}
+rag_benchmark_benchmark_loader_BenchmarkLoader ..> rag_benchmark_benchmark_models_Benchmark : creates
+rag_benchmark_benchmark_loader_BenchmarkLoader ..> rag_benchmark_benchmark_models_Benchmark : dependency
+rag_benchmark_benchmark_loader_BenchmarkLoader ..> rag_benchmark_benchmark_models_BenchmarkQuery : creates
+rag_benchmark_benchmark_loader_BenchmarkLoader ..> rag_benchmark_benchmark_models_BenchmarkQuery : dependency
+rag_benchmark_benchmark_models_Benchmark *-- rag_benchmark_benchmark_models_BenchmarkQuery
+rag_retrieval_retrieval_inspector_RetrievalInspector ..> rag_benchmark_benchmark_models_BenchmarkQuery : dependency
+rag_retrieval_retrieval_inspector_RetrievalInspector ..> rag_retrieval_retrieval_models_RetrievalInspection : creates
+rag_retrieval_retrieval_inspector_RetrievalInspector ..> rag_retrieval_retrieval_models_RetrievalInspection : dependency
+rag_retrieval_retrieval_inspector_RetrievalInspector ..> rag_retrieval_retrieval_models_RetrievedChunk : dependency
+rag_retrieval_retrieval_models_RetrievalInspection *-- rag_retrieval_retrieval_models_RetrievedChunk
+rag_retrieval_retrieval_runner_RetrievalRunner ..> rag_benchmark_benchmark_loader_BenchmarkLoader : uses
+rag_retrieval_retrieval_runner_RetrievalRunner ..> rag_retrieval_retrieval_inspector_RetrievalInspector : uses
+rag_retrieval_retrieval_runner_RetrievalRunner ..> rag_retrieval_retrieval_models_RetrievalInspection : dependency
+rarg_draft_generator_DraftGenerator ..> rarg_draft_generator_DraftOutput : creates
+rarg_draft_generator_DraftGenerator ..> rarg_draft_generator_DraftOutput : dependency
+rarg_draft_generator_DraftGenerator ..> rarg_draft_generator_DraftStep : dependency
+rarg_draft_generator_DraftOutput *-- rarg_draft_generator_DraftStep
+targ_answer_evaluator_AnswerEvaluator ..> targ_answer_evaluator_EvaluationResult : creates
+targ_answer_evaluator_AnswerEvaluator ..> targ_answer_evaluator_EvaluationResult : dependency
+targ_answer_evaluator_BaseAnswerEvaluator <|-- targ_answer_evaluator_AnswerEvaluator
+targ_answer_evaluator_BaseAnswerEvaluator ..> targ_answer_evaluator_EvaluationResult : dependency
+targ_answer_evaluator_EvaluationResult *-- targ_answer_evaluator_MetricResult
+targ_answer_evaluator_MetricResult --> targ_answer_evaluator_EvaluationMetric
+targ_answer_generator_AnswerGenerator ..> targ_answer_generator_AnswerOutput : creates
+targ_answer_generator_AnswerGenerator ..> targ_answer_generator_AnswerOutput : dependency
+targ_chunker_Chunker ..> targ_corpus_models_Chunk : creates
+targ_chunker_Chunker ..> targ_corpus_models_Chunk : dependency
+targ_chunker_Chunker ..> targ_corpus_models_CorpusDocument : dependency
+targ_corpus_representative_corpus_RepresentativeCorpusBuilder ..> targ_corpus_models_CorpusDocument : dependency
+targ_draft_generator_DraftGenerator ..> targ_draft_generator_DraftOutput : dependency
+targ_draft_generator_DraftGenerator ..> targ_draft_generator_DraftStep : dependency
+targ_draft_generator_DraftOutput *-- targ_draft_generator_DraftStep
+targ_margin_uncertainty_MarginUncertaintyResult *-- targ_margin_uncertainty_TokenMarginScore
+targ_margin_uncertainty_MarginUncertaintyScorer ..> rarg_draft_generator_DraftOutput : dependency
+targ_margin_uncertainty_MarginUncertaintyScorer ..> targ_margin_uncertainty_MarginUncertaintyResult : creates
+targ_margin_uncertainty_MarginUncertaintyScorer ..> targ_margin_uncertainty_MarginUncertaintyResult : dependency
+targ_rag_corpus_builder_CorpusBuildResult --> targ_rag_corpus_builder_CorpusChunkingConfig
+targ_rag_corpus_builder_CorpusBuildResult *-- targ_rag_corpus_builder_CorpusSourceSummary
+targ_rag_corpus_builder_RepresentativeCorpusBuilder ..> targ_corpus_models_CorpusDocument : creates
+targ_rag_corpus_builder_RepresentativeCorpusBuilder ..> targ_rag_corpus_builder_CorpusBuildResult : dependency
+targ_rag_corpus_builder_RepresentativeCorpusBuilder ..> targ_rag_corpus_builder_CorpusChunkingConfig : dependency
+targ_rag_corpus_builder_RepresentativeCorpusBuilder ..> targ_rag_corpus_builder_CorpusDocumentSpec : dependency
+targ_rag_corpus_builder_RepresentativeCorpusBuilder ..> targ_rag_corpus_builder_CorpusSourceSummary : dependency
+targ_retrieval_BaseRetriever ..> targ_retrieval_RetrievalResult : dependency
+targ_retrieval_BaseRetriever <|-- targ_retrieval_VectorRetriever
+targ_retrieval_RetrievalResult *-- targ_retrieval_RetrievedDocument
+targ_retrieval_VectorRetriever ..> targ_retrieval_RetrievalResult : creates
+targ_retrieval_VectorRetriever ..> targ_retrieval_RetrievalResult : dependency
+targ_retrieval_comparison_RetrievalComparison --> targ_answer_evaluator_EvaluationResult
+targ_retrieval_comparison_RetrievalComparison --> targ_answer_generator_AnswerOutput
+targ_retrieval_comparison_RetrievalComparison ..> targ_answer_generator_AnswerOutput : dependency
+targ_retrieval_comparison_RetrievalComparison --> targ_retrieval_RetrievalResult
+targ_retrieval_gate_RetrievalDecision --> targ_retrieval_gate_RetrievalDecisionReason
+targ_retrieval_gate_RetrievalGate ..> targ_retrieval_gate_RetrievalDecision : creates
+targ_retrieval_gate_RetrievalGate ..> targ_retrieval_gate_RetrievalDecision : dependency
+targ_retrieval_gate_RetrievalGate ..> targ_threshold_calibrator_CalibrationResult : dependency
+targ_retrieval_verification_RetrievalVerification --> targ_retrieval_RetrievalResult
+targ_retrieval_verification_RetrievalVerification --> targ_retrieval_verification_RetrievalBenchmark
+targ_retrieval_verification_RetrievalVerificationResult *-- targ_retrieval_verification_RetrievalVerification
+targ_retrieval_verification_RetrievalVerificationRunner ..> rag_benchmark_benchmark_models_Benchmark : dependency
+targ_retrieval_verification_RetrievalVerificationRunner ..> rag_benchmark_benchmark_models_BenchmarkQuery : dependency
+targ_retrieval_verification_RetrievalVerificationRunner ..> targ_retrieval_verification_RetrievalBenchmark : dependency
+targ_retrieval_verification_RetrievalVerificationRunner ..> targ_retrieval_verification_RetrievalVerification : dependency
+targ_retrieval_verification_RetrievalVerificationRunner ..> targ_retrieval_verification_RetrievalVerificationResult : creates
+targ_retrieval_verification_RetrievalVerificationRunner ..> targ_retrieval_verification_RetrievalVerificationResult : dependency
+targ_stage2_5_experiment_ExperimentResult *-- targ_retrieval_comparison_RetrievalComparison
+targ_stage2_5_experiment_Stage2_5ExperimentRunner ..> rag_development_record_DevelopmentRecord : dependency
+targ_stage2_5_experiment_Stage2_5ExperimentRunner ..> targ_answer_evaluator_EvaluationResult : dependency
+targ_stage2_5_experiment_Stage2_5ExperimentRunner ..> targ_answer_generator_AnswerOutput : dependency
+targ_stage2_5_experiment_Stage2_5ExperimentRunner ..> targ_retrieval_comparison_RetrievalComparison : creates
+targ_stage2_5_experiment_Stage2_5ExperimentRunner ..> targ_retrieval_comparison_RetrievalComparison : dependency
+targ_stage2_5_experiment_Stage2_5ExperimentRunner ..> targ_stage2_5_experiment_ExperimentResult : creates
+targ_stage2_5_experiment_Stage2_5ExperimentRunner ..> targ_stage2_5_experiment_ExperimentResult : dependency
+targ_targ_pipeline_PipelineResult --> targ_retrieval_RetrievalResult
+targ_targ_pipeline_TARGPipeline ..> rarg_draft_generator_DraftGenerator : dependency
+targ_targ_pipeline_TARGPipeline ..> targ_answer_generator_AnswerGenerator : dependency
+targ_targ_pipeline_TARGPipeline ..> targ_margin_uncertainty_MarginUncertaintyScorer : dependency
+targ_targ_pipeline_TARGPipeline ..> targ_retrieval_BaseRetriever : dependency
+targ_targ_pipeline_TARGPipeline ..> targ_retrieval_gate_RetrievalGate : dependency
+targ_targ_pipeline_TARGPipeline ..> targ_targ_pipeline_PipelineResult : creates
+targ_targ_pipeline_TARGPipeline ..> targ_targ_pipeline_PipelineResult : dependency
+targ_threshold_calibrator_ThresholdCalibrator ..> targ_threshold_calibrator_CalibrationResult : creates
+targ_threshold_calibrator_ThresholdCalibrator ..> targ_threshold_calibrator_CalibrationResult : dependency
+targ_threshold_calibrator_ThresholdCalibrator ..> targ_threshold_calibrator_DevelopmentExample : dependency
+targ_threshold_calibrator_ThresholdCalibrator ..> targ_threshold_calibrator_ThresholdEvaluation : dependency
+targ_vector_store_builder_VectorStoreBuilder ..> targ_corpus_models_Chunk : dependency
+@enduml

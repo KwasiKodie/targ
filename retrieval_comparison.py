@@ -34,7 +34,15 @@ from dataclasses import dataclass
 
 from answer_generator import AnswerOutput
 from answer_evaluator import EvaluationResult
-from retrieval import RetrievalResult
+
+from module_loader import load 
+
+retrieval = load(
+    "retrieval_runtime",
+    "retrieval.py"
+)
+
+RetrievalResult = retrieval.RetrievalResult 
 
 # -----------------------------------------------------------------
 # Immutable experiment record

@@ -32,7 +32,19 @@ from dataclasses import dataclass
 from math import isfinite 
 from typing import Any, Iterable, Protocol, Sequence, runtime_checkable 
 
-from retrieval import BaseRetriever, RetrievalResult 
+from benchmark.benchmark_models import Benchmark, BenchmarkQuery
+
+from module_loader import load 
+
+retrieval = load(
+    "retrieval_runtime",
+    "retrieval.py"
+)
+
+BaseRetriever = retrieval.BaseRetriever
+RetrievalResult = retrieval.RetrievalResult
+RetrievedDocument = retrieval.RetrievedDocument 
+
 
 # ----------------------------------------------------------
 # Benchmark
@@ -277,7 +289,7 @@ class RetrievalVerificationRunner:
     ) -> RetrievalVerification: 
         
         retrieval = self.retriever.retrieve(
-            query=benchmark.query,
+            query=benchmark.question,
             top_k=self.top_k,
         )
 
@@ -292,8 +304,11 @@ class RetrievalVerificationRunner:
 
             source = (
                 document.metadata
-                .get("source")
+                .get("source").strip()
             )
+
+            if not source.endswith(".pdf"):
+                source += ".pdf"
 
             if (
                 not isinstance(source, str)
@@ -317,12 +332,12 @@ class RetrievalVerificationRunner:
             len(retrieved_sources) > 0
             and 
             retrieved_sources[0]
-            in benchmark.expected_sources 
+            in benchmark.expected_source 
         )
 
         hit_at_k = any(
             source
-            in benchmark.expected_sources 
+            in benchmark.expected_source 
             for source in retrieved_sources 
         )
 
@@ -335,7 +350,7 @@ class RetrievalVerificationRunner:
             
             if (
                 source
-                in benchmark.expected_sources
+                in benchmark.expected_source
             ): 
                 first_rank = index 
                 break 
@@ -394,58 +409,47 @@ class RetrievalVerificationRunner:
     
     # ---------------------------------------------------
 
-    @staticmethod 
     def _materialize(
-        benchmarks:
-        Iterable[RetrievalBenchmark],
-    ) -> tuple[RetrievalBenchmark, ...]:
-        
-        if benchmarks is None:
+        self,
+        benchmarks: Benchmark,
+    ) -> tuple[BenchmarkQuery, ...]:
+        """
+        Validate and materialize a Benchmark into an immutable
+        sequence of BenchmarkQuery objects.
+        """
+
+        if not isinstance(benchmarks, Benchmark):
             raise TypeError(
-                "benchmarks must not be None."
+                "Expected Benchmark."
             )
-        
-        benchmarks = tuple(
-            benchmarks 
-        )
 
-        if not benchmarks:
+        queries = tuple(benchmarks.queries)
+
+        if not queries:
             raise ValueError(
-                "At least on bencmark "
-                "is required."
+                "At least one benchmark is required."
             )
-        
-        seen = set()
 
-        for benchmark in benchmarks: 
+        seen: set[str] = set()
+
+        for query in queries:
 
             if not isinstance(
-                benchmark,
-                RetrievalBenchmark,
-            ): 
-                raise TypeError(
-                    "Expected RetrievalBenchmark."
-                )
-            
-            if (
-                benchmark.benchmark_id
-                in seen 
+                query,
+                BenchmarkQuery,
             ):
                 raise TypeError(
-                    "Expected RetrievalBenchmark."
+                    "Expected BenchmarkQuery."
                 )
-            
-            if (
-                benchmark.benchmark_id
-                in seen 
-            ):
+
+            if query.benchmark_id in seen:
                 raise ValueError(
-                    "Duplicate benchmark_id: "
-                    f"{benchmark.benchmark_id}"
+                    f"Duplicate benchmark_id: "
+                    f"{query.benchmark_id}"
                 )
-            
+
             seen.add(
-                benchmark.benchmark_id
+                query.benchmark_id
             )
 
-        return benchmarks 
+        return queries 

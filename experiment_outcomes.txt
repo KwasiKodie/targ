@@ -1,45 +1,28 @@
-python run_retrieval_benchmark.py
-/home/kwasi/targ/run_retrieval_benchmark.py:5: DeprecationWarning: `langchain-community` is being sunset and is no longer actively maintained. See https://github.com/langchain-ai/langchain-community/issues/674 for details and migration guidance toward standalone integration packages.
+python -m measure_retrieval_accuracy
+/home/kwasi/targ/measure_retrieval_accuracy.py:38: DeprecationWarning: `langchain-community` is being sunset and is no longer actively maintained. See https://github.com/langchain-ai/langchain-community/issues/674 for details and migration guidance toward standalone integration packages.
   from langchain_community.vectorstores import FAISS
-Traceback (most recent call last):
-  File "/home/kwasi/targ/run_retrieval_benchmark.py", line 93, in <module>
-    main()
-    ~~~~^^
-  File "/home/kwasi/targ/run_retrieval_benchmark.py", line 83, in main
-    inspections = runner.run_and_save(
-        output_path="retrieval/retrieval_results.json",
-    )
-  File "/home/kwasi/targ/retrieval/retrieval_runner.py", line 76, in run_and_save
-    inspections = self.run()
-  File "/home/kwasi/targ/retrieval/retrieval_runner.py", line 61, in run
-    inspections = tuple(
-                  ^^^^^
-  File "/home/kwasi/targ/retrieval/retrieval_runner.py", line 62, in <genexpr>
-    self.retrieval_inspector.inspect(query)
-    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
-  File "/home/kwasi/targ/retrieval/retrieval_inspector.py", line 71, in inspect
-    documents = self._retrieve(
-        benchmark_query.question,
-    )
-  File "/home/kwasi/targ/retrieval/retrieval_inspector.py", line 107, in _retrieve
-    return self.vector_store.similarity_search_with_score(
-           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
-        query=query,
-        ^^^^^^^^^^^^
-        k=self.top_k,
-        ^^^^^^^^^^^^^
-    )
-    ^
-  File "/home/kwasi/targ/.venv/lib/python3.14/site-packages/langchain_community/vectorstores/faiss.py", line 516, in similarity_search_with_score
-    docs = self.similarity_search_with_score_by_vector(
-        embedding,
-    ...<3 lines>...
-        **kwargs,
-    )
-  File "/home/kwasi/targ/.venv/lib/python3.14/site-packages/langchain_community/vectorstores/faiss.py", line 417, in similarity_search_with_score_by_vector
-    scores, indices = self.index.search(vector, k if filter is None else fetch_k)
-                      ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/kwasi/targ/.venv/lib/python3.14/site-packages/faiss/class_wrappers.py", line 437, in replacement_search
-    assert d == self.d
-           ^^^^^^^^^^^
-AssertionError
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Loading weights: 100%|█| 199/199 [00:00<00:0
+
+Retrieval Verification Results
+----------------------------------------
+Benchmarks               : 123
+Top-1 Source Accuracy    : 0.000
+Hit@K                    : 0.000
+Mean First Correct Rank  : N/A
+
+Results written to retrieval_verification_results.json
+(.venv) kwasi@kwasi-ThinkPad-X1-Carbon-5th:~/targ$ python -m measure_retrieval_accuracy
+/home/kwasi/targ/measure_retrieval_accuracy.py:38: DeprecationWarning: `langchain-community` is being sunset and is no longer actively maintained. See https://github.com/langchain-ai/langchain-community/issues/674 for details and migration guidance toward standalone integration packages.
+  from langchain_community.vectorstores import FAISS
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Loading weights: 100%|█| 199/199 [00:00<00:0
+
+Retrieval Verification Results
+----------------------------------------
+Benchmarks               : 123
+Top-1 Source Accuracy    : 0.911
+Hit@K                    : 0.984
+Mean First Correct Rank  : 1.132
+
+Results written to retrieval_verification_results.json

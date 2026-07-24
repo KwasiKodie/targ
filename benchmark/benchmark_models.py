@@ -38,11 +38,11 @@ class BenchmarkQuery:
     One benchmark question together with its expected evidence.
     """
 
+    benchmark_id: str 
+
     question: str 
 
-    document_id: str 
-
-    section_title: str 
+    expected_source: tuple[str, ...]
 
     supporting_pages: tuple[int, ...]
 
@@ -51,6 +51,7 @@ class BenchmarkQuery:
     difficulty: str 
 
     topic: str 
+    
 
     def __post_init__(self) -> None: 
 
@@ -59,15 +60,15 @@ class BenchmarkQuery:
                 "question cannot be empty."
             )
         
-        if not self.document_id.strip():
-            raise ValueError(
-                "document_id cannot be empty."
-            )
+        # if not self.document_id.strip():
+        #     raise ValueError(
+        #         "document_id cannot be empty."
+        #     )
         
-        if not self.section_title.strip():
-            raise ValueError(
-                "section_title cannot be empty."
-            )
+        # if not self.section_title.strip():
+        #     raise ValueError(
+        #         "section_title cannot be empty."
+        #     )
         
         if len(self.supporting_pages) == 0:
             raise ValueError(
@@ -149,7 +150,7 @@ class Benchmark:
             
             key = (
                 query.question,
-                query.document_id,
+                # query.document_id,
             )
 
             if key in seen:

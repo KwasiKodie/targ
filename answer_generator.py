@@ -36,7 +36,15 @@ from typing import Any, Protocol
 import torch
 from torch import Tensor
 
-from retrieval import RetrievalResult
+from module_loader import load 
+
+retrieval = load(
+    "retrieval_runtime",
+    "retrieval.py"
+)
+
+RetrievalResult = retrieval.RetrievalResult 
+
 
 # -------------------------------------------------------------------
 # Tokenizer protocol

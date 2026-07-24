@@ -3,9 +3,20 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from draft_generator import DraftGenerator
-from margin_uncertainty import MarginUncertaintyScorer
+from margin_uncertainty_scorer import MarginUncertaintyScorer
 from retrieval_gate import RetrievalGate
-from retrieval import BaseRetriever, RetrievalResult
+
+from module_loader import load 
+
+retrieval = load(
+    "retrieval_runtime",
+    "retrieval.py"
+)
+
+RetrievalResult = retrieval.RetrievalResult 
+BaseRetriever = retrieval.BaseRetriever 
+
+
 from answer_generator import AnswerGenerator
 
 
