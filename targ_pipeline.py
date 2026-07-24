@@ -1,6 +1,7 @@
 from __future__ import annotations
+import time 
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from draft_generator import DraftGenerator
 from margin_uncertainty_scorer import MarginUncertaintyScorer
@@ -25,15 +26,17 @@ class PipelineResult:
 
     query: str
 
-    draft
+    draft: DraftGenerator
 
-    margin
+    margin: MarginUncertaintyScorer
 
-    gate
+    gate: RetrievalGate
 
     retrieval: RetrievalResult
 
     answer: str
+
+    timing: dict[str, float] = field(default_factory=dict)
 
 class TARGPipeline:
 
@@ -77,19 +80,27 @@ class TARGPipeline:
         query: str,
 
     ) -> PipelineResult:
+        pipeline_start = time.perf_counter()
 
+        t0 = time.perf_counter()
         draft = self.draft_generator.generate(
             query
         )
+        draft_time = time.perf_counter() - t0
 
-        margin = self.scorer.compute(
+        t0 = time.perf_counter()
+        margin = self.scorer.score(
             draft=draft
         )
+        margin_time = time.perf_counter() - t0
 
+        t0 = time.perf_counter()
         gate = self.gate.decide(
             uncertainty_score=margin.score
         )
+        gate_time = time.perf_counter() - t0
 
+        t0 = time.perf_counter()
         if gate.retrieve:
 
             retrieval = self.retriever.retrieve(
@@ -108,15 +119,18 @@ class TARGPipeline:
 
                 documents=[],
             )
+        retrieval_time = time.perf_counter() - t0
 
+        t0 = time.perf_counter()
         answer = self.answer_generator.generate(
 
             query=query,
 
-            draft=draft,
-
             retrieval=retrieval,
         )
+        answer_time = time.perf_counter() - t0
+
+        total_time = time.perf_counter() - pipeline_start
 
         return PipelineResult(
 
@@ -131,4 +145,13 @@ class TARGPipeline:
             retrieval=retrieval,
 
             answer=answer,
+
+            timing={
+                "draft_generation":draft_time,
+                "margin_scoring":margin_time,
+                "gate_decision":gate_time,
+                "retrieval":retrieval_time,
+                "answer_generation":answer_time,  
+                "total":total_time 
+            },
         )
