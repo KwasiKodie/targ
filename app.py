@@ -81,6 +81,8 @@ def main():
         result = pipeline.run(query)
 
         print(f"\nAnswer:\n{result.answer.generated_text}")
+        print(f"Threshold (τ): {calibration.threshold}")
+        print(f"Uncertainty score: {result.margin.score}")
         print(f"Retrieved: {result.gate.retrieve}")
         for stage, seconds in result.timing.items():
             print(f"{stage:20}: {seconds:.3f} s")

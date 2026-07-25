@@ -1,217 +1,104 @@
-python -m app
-/home/kwasi/targ/app.py:3: DeprecationWarning: `langchain-community` is being sunset and is no longer actively maintained. See https://github.com/langchain-ai/langchain-community/issues/674 for details and migration guidance toward standalone integration packages.
-  from langchain_community.vectorstores import FAISS
-Traceback (most recent call last):
-  File "/home/kwasi/targ/.venv/lib/python3.14/site-packages/huggingface_hub/utils/_http.py", line 795, in hf_raise_for_status
-    response.raise_for_status()
-    ~~~~~~~~~~~~~~~~~~~~~~~~~^^
-  File "/home/kwasi/targ/.venv/lib/python3.14/site-packages/httpx/_models.py", line 829, in raise_for_status
-    raise HTTPStatusError(message, request=request, response=self)
-httpx.HTTPStatusError: Client error '401 Unauthorized' for url 'https://huggingface.co/meta-llama/Llama-3.2-3B-Instruct/resolve/main/config.json'
-For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/401
-
-The above exception was the direct cause of the following exception:
-
-Traceback (most recent call last):
-  File "/home/kwasi/targ/.venv/lib/python3.14/site-packages/transformers/utils/hub.py", line 437, in cached_files
-    hf_hub_download(
-    ~~~~~~~~~~~~~~~^
-        path_or_repo_id,
-        ^^^^^^^^^^^^^^^^
-    ...<10 lines>...
-        tqdm_class=tqdm_class,
-        ^^^^^^^^^^^^^^^^^^^^^^
-    )
-    ^
-  File "/home/kwasi/targ/.venv/lib/python3.14/site-packages/huggingface_hub/utils/_validators.py", line 88, in _inner_fn
-    return fn(*args, **kwargs)
-  File "/home/kwasi/targ/.venv/lib/python3.14/site-packages/huggingface_hub/file_download.py", line 1013, in hf_hub_download
-    return _hf_hub_download_to_cache_dir(
-        # Destination
-    ...<15 lines>...
-        dry_run=dry_run,
-    )
-  File "/home/kwasi/targ/.venv/lib/python3.14/site-packages/huggingface_hub/file_download.py", line 1165, in _hf_hub_download_to_cache_dir
-    _raise_on_head_call_error(head_call_error, force_download, local_files_only)
-    ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/kwasi/targ/.venv/lib/python3.14/site-packages/huggingface_hub/file_download.py", line 1864, in _raise_on_head_call_error
-    raise head_call_error
-  File "/home/kwasi/targ/.venv/lib/python3.14/site-packages/huggingface_hub/file_download.py", line 1707, in _get_metadata_or_catch_error
-    metadata = get_hf_file_metadata(
-        url=url,
-    ...<4 lines>...
-        retry_on_errors=retry_on_errors,
-    )
-  File "/home/kwasi/targ/.venv/lib/python3.14/site-packages/huggingface_hub/utils/_validators.py", line 88, in _inner_fn
-    return fn(*args, **kwargs)
-  File "/home/kwasi/targ/.venv/lib/python3.14/site-packages/huggingface_hub/file_download.py", line 1615, in get_hf_file_metadata
-    response = _httpx_follow_relative_redirects_with_backoff(
-        method="HEAD", url=url, headers=hf_headers, timeout=timeout, retry_on_errors=retry_on_errors
-    )
-  File "/home/kwasi/targ/.venv/lib/python3.14/site-packages/huggingface_hub/utils/_http.py", line 726, in _httpx_follow_relative_redirects_with_backoff
-    hf_raise_for_status(response)
-    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
-  File "/home/kwasi/targ/.venv/lib/python3.14/site-packages/huggingface_hub/utils/_http.py", line 821, in hf_raise_for_status
-    raise _format(GatedRepoError, message, response, repo_type=repo_type, repo_id=repo_id) from e
-huggingface_hub.errors.GatedRepoError: 401 Client Error. (Request ID: Root=1-6a632fc7-29163329278b037a3c5ac625;0dd06cb8-2dde-4695-a4b1-7565928dbc3d)
-
-Cannot access gated repo for url https://huggingface.co/meta-llama/Llama-3.2-3B-Instruct/resolve/main/config.json.
-Access to model meta-llama/Llama-3.2-3B-Instruct is restricted. You must have access to it and be authenticated to access it. Please log in.
-
-The above exception was the direct cause of the following exception:
-
-Traceback (most recent call last):
-  File "/home/kwasi/targ/.venv/lib/python3.14/site-packages/transformers/models/auto/tokenization_auto.py", line 747, in from_pretrained
-    config = AutoConfig.from_pretrained(
-        pretrained_model_name_or_path, trust_remote_code=trust_remote_code, **kwargs
-    )
-  File "/home/kwasi/targ/.venv/lib/python3.14/site-packages/transformers/models/auto/configuration_auto.py", line 376, in from_pretrained
-    config_dict, unused_kwargs = PreTrainedConfig.get_config_dict(pretrained_model_name_or_path, **kwargs)
-                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/kwasi/targ/.venv/lib/python3.14/site-packages/transformers/configuration_utils.py", line 721, in get_config_dict
-    config_dict, kwargs = cls._get_config_dict(pretrained_model_name_or_path, **kwargs)
-                          ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/kwasi/targ/.venv/lib/python3.14/site-packages/transformers/configuration_utils.py", line 776, in _get_config_dict
-    resolved_config_file = cached_file(
-        pretrained_model_name_or_path,
-    ...<9 lines>...
-        _commit_hash=commit_hash,
-    )
-  File "/home/kwasi/targ/.venv/lib/python3.14/site-packages/transformers/utils/hub.py", line 293, in cached_file
-    file = cached_files(path_or_repo_id=path_or_repo_id, filenames=[filename], **kwargs)
-  File "/home/kwasi/targ/.venv/lib/python3.14/site-packages/transformers/utils/hub.py", line 503, in cached_files
-    raise OSError(
-    ...<2 lines>...
-    ) from e
-OSError: You are trying to access a gated repo.
-Make sure to have access to it at https://huggingface.co/meta-llama/Llama-3.2-3B-Instruct.
-401 Client Error. (Request ID: Root=1-6a632fc7-29163329278b037a3c5ac625;0dd06cb8-2dde-4695-a4b1-7565928dbc3d)
-
-Cannot access gated repo for url https://huggingface.co/meta-llama/Llama-3.2-3B-Instruct/resolve/main/config.json.
-Access to model meta-llama/Llama-3.2-3B-Instruct is restricted. You must have access to it and be authenticated to access it. Please log in.
-
-During handling of the above exception, another exception occurred:
-
-Traceback (most recent call last):
-  File "/home/kwasi/targ/.venv/lib/python3.14/site-packages/huggingface_hub/utils/_http.py", line 795, in hf_raise_for_status
-    response.raise_for_status()
-    ~~~~~~~~~~~~~~~~~~~~~~~~~^^
-  File "/home/kwasi/targ/.venv/lib/python3.14/site-packages/httpx/_models.py", line 829, in raise_for_status
-    raise HTTPStatusError(message, request=request, response=self)
-httpx.HTTPStatusError: Client error '401 Unauthorized' for url 'https://huggingface.co/meta-llama/Llama-3.2-3B-Instruct/resolve/main/config.json'
-For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/401
-
-The above exception was the direct cause of the following exception:
-
-Traceback (most recent call last):
-  File "/home/kwasi/targ/.venv/lib/python3.14/site-packages/transformers/utils/hub.py", line 437, in cached_files
-    hf_hub_download(
-    ~~~~~~~~~~~~~~~^
-        path_or_repo_id,
-        ^^^^^^^^^^^^^^^^
-    ...<10 lines>...
-        tqdm_class=tqdm_class,
-        ^^^^^^^^^^^^^^^^^^^^^^
-    )
-    ^
-  File "/home/kwasi/targ/.venv/lib/python3.14/site-packages/huggingface_hub/utils/_validators.py", line 88, in _inner_fn
-    return fn(*args, **kwargs)
-  File "/home/kwasi/targ/.venv/lib/python3.14/site-packages/huggingface_hub/file_download.py", line 1013, in hf_hub_download
-    return _hf_hub_download_to_cache_dir(
-        # Destination
-    ...<15 lines>...
-        dry_run=dry_run,
-    )
-  File "/home/kwasi/targ/.venv/lib/python3.14/site-packages/huggingface_hub/file_download.py", line 1165, in _hf_hub_download_to_cache_dir
-    _raise_on_head_call_error(head_call_error, force_download, local_files_only)
-    ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/kwasi/targ/.venv/lib/python3.14/site-packages/huggingface_hub/file_download.py", line 1864, in _raise_on_head_call_error
-    raise head_call_error
-  File "/home/kwasi/targ/.venv/lib/python3.14/site-packages/huggingface_hub/file_download.py", line 1707, in _get_metadata_or_catch_error
-    metadata = get_hf_file_metadata(
-        url=url,
-    ...<4 lines>...
-        retry_on_errors=retry_on_errors,
-    )
-  File "/home/kwasi/targ/.venv/lib/python3.14/site-packages/huggingface_hub/utils/_validators.py", line 88, in _inner_fn
-    return fn(*args, **kwargs)
-  File "/home/kwasi/targ/.venv/lib/python3.14/site-packages/huggingface_hub/file_download.py", line 1615, in get_hf_file_metadata
-    response = _httpx_follow_relative_redirects_with_backoff(
-        method="HEAD", url=url, headers=hf_headers, timeout=timeout, retry_on_errors=retry_on_errors
-    )
-  File "/home/kwasi/targ/.venv/lib/python3.14/site-packages/huggingface_hub/utils/_http.py", line 726, in _httpx_follow_relative_redirects_with_backoff
-    hf_raise_for_status(response)
-    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
-  File "/home/kwasi/targ/.venv/lib/python3.14/site-packages/huggingface_hub/utils/_http.py", line 821, in hf_raise_for_status
-    raise _format(GatedRepoError, message, response, repo_type=repo_type, repo_id=repo_id) from e
-huggingface_hub.errors.GatedRepoError: 401 Client Error. (Request ID: Root=1-6a632fc8-5346a8b5029558ab2c6143d5;acf9d542-6206-421d-a52f-3972e71ea319)
-
-Cannot access gated repo for url https://huggingface.co/meta-llama/Llama-3.2-3B-Instruct/resolve/main/config.json.
-Access to model meta-llama/Llama-3.2-3B-Instruct is restricted. You must have access to it and be authenticated to access it. Please log in.
-
-The above exception was the direct cause of the following exception:
-
-Traceback (most recent call last):
-  File "<frozen runpy>", line 198, in _run_module_as_main
-  File "<frozen runpy>", line 88, in _run_code
-  File "/home/kwasi/targ/app.py", line 84, in <module>
-    main()
-    ~~~~^^
-  File "/home/kwasi/targ/app.py", line 29, in main
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-  File "/home/kwasi/targ/.venv/lib/python3.14/site-packages/transformers/models/auto/tokenization_auto.py", line 751, in from_pretrained
-    config = PreTrainedConfig.from_pretrained(pretrained_model_name_or_path, **kwargs)
-  File "/home/kwasi/targ/.venv/lib/python3.14/site-packages/transformers/configuration_utils.py", line 680, in from_pretrained
-    config_dict, kwargs = cls.get_config_dict(pretrained_model_name_or_path, **kwargs)
-                          ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/kwasi/targ/.venv/lib/python3.14/site-packages/transformers/configuration_utils.py", line 721, in get_config_dict
-    config_dict, kwargs = cls._get_config_dict(pretrained_model_name_or_path, **kwargs)
-                          ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/kwasi/targ/.venv/lib/python3.14/site-packages/transformers/configuration_utils.py", line 776, in _get_config_dict
-    resolved_config_file = cached_file(
-        pretrained_model_name_or_path,
-    ...<9 lines>...
-        _commit_hash=commit_hash,
-    )
-  File "/home/kwasi/targ/.venv/lib/python3.14/site-packages/transformers/utils/hub.py", line 293, in cached_file
-    file = cached_files(path_or_repo_id=path_or_repo_id, filenames=[filename], **kwargs)
-  File "/home/kwasi/targ/.venv/lib/python3.14/site-packages/transformers/utils/hub.py", line 503, in cached_files
-    raise OSError(
-    ...<2 lines>...
-    ) from e
-OSError: You are trying to access a gated repo.
-Make sure to have access to it at https://huggingface.co/meta-llama/Llama-3.2-3B-Instruct.
-401 Client Error. (Request ID: Root=1-6a632fc8-5346a8b5029558ab2c6143d5;acf9d542-6206-421d-a52f-3972e71ea319)
-
-Cannot access gated repo for url https://huggingface.co/meta-llama/Llama-3.2-3B-Instruct/resolve/main/config.json.
-Access to model meta-llama/Llama-3.2-3B-Instruct is restricted. You must have access to it and be authenticated to access it. Please log in.
-(.venv) kwasi@kwasi-ThinkPad-X1-Carbon-5th:~/targ$ python -m app
-/home/kwasi/targ/app.py:3: DeprecationWarning: `langchain-community` is being sunset and is no longer actively maintained. See https://github.com/langchain-ai/langchain-community/issues/674 for details and migration guidance toward standalone integration packages.
+===
+CPU
+===
+ DeprecationWarning: `langchain-community` is being sunset and is no longer actively maintained. See https://github.com/langchain-ai/langchain-community/issues/674 for details and migration guidance toward standalone integration packages.
   from langchain_community.vectorstores import FAISS
 Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
-Traceback (most recent call last):
-  File "<frozen runpy>", line 198, in _run_module_as_main
-  File "<frozen runpy>", line 88, in _run_code
-  File "/home/kwasi/targ/app.py", line 84, in <module>
-    main()
-    ~~~~^^
-  File "/home/kwasi/targ/app.py", line 31, in main
-    model = AutoModelForCausalLM.from_pretrained(
-        MODEL_NAME,
-        device_map="auto",
-        torch_dtype="auto",
-    )
-  File "/home/kwasi/targ/.venv/lib/python3.14/site-packages/transformers/models/auto/auto_factory.py", line 402, in from_pretrained
-    return model_class.from_pretrained(
-           ~~~~~~~~~~~~~~~~~~~~~~~~~~~^
-        pretrained_model_name_or_path, *model_args, config=config, **hub_kwargs, **kwargs
-        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    )
-    ^
-  File "/home/kwasi/targ/.venv/lib/python3.14/site-packages/transformers/modeling_utils.py", line 4291, in from_pretrained
-    device_map = check_and_set_device_map(device_map)  # warn, error and fix the device map
-  File "/home/kwasi/targ/.venv/lib/python3.14/site-packages/transformers/integrations/accelerate.py", line 135, in check_and_set_device_map
-    raise ValueError(
-    ...<2 lines>...
-    )
-ValueError: Using a `device_map`, `tp_plan`, `torch.device` context manager or setting `torch.set_default_device(device)` requires `accelerate`. You can install it with `pip install accelerate`
+Loading weights: 100%|█| 338/338 [00:00<00:0
+Loading weights: 100%|█| 199/199 [00:00<00:0
+
+Question: What is the full meaning of RAG?
+
+Answer:
+Retrieval-Augmented Generation (RAG) is an advanced hybrid model architecture that combines retrieval mechanisms with generative language models to enhance the accuracy of output generation, addressing limitations of large language models like LLMs. It involves integrating a retrieval component that retrieves relevant information from external sources and a generation component that processes this information to produce human-like text. RAG models aim to improve upon traditional LLMs by incorporating real-world data and updating their knowledge based on evolving contexts.
+Threshold (τ): 0.4971897602081299
+Uncertainty score: 0.7174148559570312
+Retrieved: True
+draft_generation    : 5.950 s
+margin_scoring      : 0.032 s
+gate_decision       : 0.000 s
+retrieval           : 0.068 s
+answer_generation   : 226.120 s
+total               : 232.170 s
+
+Question: What limitation of retrieval-augmented large language models motivates Adaptive-RAG?
+
+Answer:
+Adaptive-RAG addresses a limitation where traditional RAGs require significant training data, which can be expensive and time-consuming. It introduces an adaptive mechanism that automatically adjusts the model's focus based on its performance during queries, allowing it to learn more efficiently from limited data sources. This approach enables better resource utilization and faster adaptation to new information.
+Threshold (τ): 0.4971897602081299
+Uncertainty score: 0.43487510085105896
+Retrieved: False
+draft_generation    : 6.556 s
+margin_scoring      : 0.028 s
+gate_decision       : 0.000 s
+retrieval           : 0.000 s
+answer_generation   : 18.964 s
+total               : 25.548 s
+
+Question: What is the main objective of the Adaptive-RAG framework?
+
+Answer:
+The main objective of adaptive-RAG framework is to enhance the efficiency of RAG models by optimizing both retrieval and generation components to reduce computational resources and latency. It aims to improve the effectiveness of RAG models in handling large datasets efficiently while maintaining high performance levels. By focusing on personalized retrieval processes tailored to individual user preferences and contexts, it seeks to significantly boost the relevance of generated responses. This adaptation ensures that RAG models can better adapt to evolving interaction contexts, thereby providing more accurate and contextually appropriate output.
+Threshold (τ): 0.4971897602081299
+Uncertainty score: 0.5857231616973877
+Retrieved: True
+draft_generation    : 5.930 s
+margin_scoring      : 0.022 s
+gate_decision       : 0.000 s
+retrieval           : 0.065 s
+answer_generation   : 215.572 s
+total               : 221.589 s
+
+Question: What are the three principal contributions of Adaptive-RAG?
+
+Answer:
+The three principal contributions of Adaptive-RAG are:
+
+1. It proposes the Adaptive Retrieval-Augmented Generation framework, referred to as Adaptive-RAG, designed to handle queries of various complexities.
+2. It dynamically adjusts its query handling strategies based on the complexity of queries encountered, spanning from the most straightforward to the most complex queries.
+3. It leverages a smaller language model with query-complexity pairs, automatically annotated from the predicted outcomes and inductive biases in datasets, to select the most suitable strategy for answering each query. This allows for efficient allocation of resources to handle complex queries while effectively managing simpler ones. 
+
+These contributions aim to enhance the overall accuracy and efficiency of QA systems, providing a robust middle ground among iterative LLM augmentation methods for complex queries, single-step methods for simpler queries, and even no-retrieval-augmented methods for the most straightforward queries.
+Threshold (τ): 0.4971897602081299
+Uncertainty score: 0.5544590353965759
+Retrieved: True
+draft_generation    : 6.136 s
+margin_scoring      : 0.030 s
+gate_decision       : 0.000 s
+retrieval           : 0.062 s
+answer_generation   : 267.529 s
+total               : 273.756 s
+
+Question: What four major forms of learning are supported by the Soar architecture?
+
+Answer:
+The Soar architecture supports four major forms of learning: declarative, procedural, episodic, and associative.
+Threshold (τ): 0.4971897602081299
+Uncertainty score: 0.4629126489162445
+Retrieved: False
+draft_generation    : 6.579 s
+margin_scoring      : 0.021 s
+gate_decision       : 0.000 s
+retrieval           : 0.000 s
+answer_generation   : 8.478 s
+total               : 15.079 s
+
+Question: How does CoALA define procedural memory?
+
+Answer:
+According to the given context, CoALA defines procedural memory through its "procedural memory semantic memory episodic memory" components. Specifically, it states:
+
+"Cognitive Architectures for Language Agents (CoALA) leverages key concepts such as memory, grounding, learning, and decision-making."
+
+The term "procedural memory" is mentioned within this broader concept, indicating that CoALA incorporates elements related to procedural memory within its overall architecture. However, the specific definition of what constitutes procedural memory in CoALA is not detailed beyond referencing other terms like semantic memory and episodic memory. Thus, while CoALA includes these types of memory, the exact nature of procedural memory within the system isn't explicitly defined here. 
+
+To summarize, CoALA integrates aspects of procedural memory (likely referring to both semantic and episodic memory) but doesn't provide a precise definition of procedural memory itself. Instead, it emphasizes how these different forms of memory work together within the larger framework of CoALA's cognitive architecture.
+Threshold (τ): 0.4971897602081299
+Uncertainty score: 0.5262669324874878
+Retrieved: True
+draft_generation    : 5.415 s
+margin_scoring      : 0.021 s
+gate_decision       : 0.000 s
+retrieval           : 0.051 s
+answer_generation   : 225.800 s
+total               : 231.287 s
