@@ -1,3 +1,5 @@
+info@lumytics.com
+
 This is the right stage to move from **unit testing** to **integration testing**. At this point you've individually verified:
 
 * ✅ DraftGenerator
@@ -229,16 +231,52 @@ This makes it much easier to diagnose issues in later experiments.
 
 
 =========
-stage 2.5
+stage 3
 =========
 
-answer_generator.py
-answer_evaluator.py
-retrieval_comparison.py (immutable experiment models)
-    unit testing
-    - Generation is deterministic and evidence-preserving.
-    - Evaluation produces correct, auditable scores.
-    - The only remaining logic in the Stage 2.5 runner is orchestration.
-Stage 2.5 experiment runner
-Populate DevelopmentExample
-Recalibrate with calibrate_for_accuracy()
+Stage 3 – Retrieval Verification
+Objective
+
+Verify that the vector store returns the correct evidence for representative questions before evaluating TARG.
+
+Step 3.1 — Build a representative corpus
+
+    Collect authoritative PDFs.
+    Chunk documents consistently.
+    Attach metadata (source, page, chunk, id).
+    Build the vector store.
+    Verify indexing before running TARG.
+
+Step 3.2 — Preserve source metadata
+
+Step 3.3 — Prepare benchmark queries
+
+Step 3.4 — Retrieval inspection
+
+Step 3.5 — Manual relevance assessment
+
+Step 3.6 — Measure retrieval accuracy
+
+========
+Step 3.3
+========
+
+Therefore, the minimum mandatory code changes are:
+
+retrieval_verification.py
+retrieval_models.py
+retrieval_inspector.py
+the verification experiment/run script
+any result serializer or tests using the old metric names
+
+=======
+Testing
+=======
+
+Let's proceed to measuring retrieval accuracy as against benchmark_queries.json by computing metrics such as: Top-1 document accuracy, Top-1 page accuracy, Recall@5 and MRR (Mean Reciprocal Rank). The targ_code.txt file contains all the code used in the project so and the official targ research paper for your reference.
+
+Yes. This is actually the next experiment in the reproduction pipeline, and it should be completely independent of TARG itself. The paper first verifies that the retriever is capable of finding the correct evidence before introducing adaptive gating. Your uploaded implementation already hints at this separation through retrieval_verification.py, although it currently only measures source-level Top-1 accuracy, Hit@K, and Mean First Correct Rank.
+
+=========
+Next move
+=========
