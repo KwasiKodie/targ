@@ -30,11 +30,6 @@ from corpus.chunker import Chunker
 from corpus.development_record import DevelopmentRecord
 from corpus.representative_corpus import RepresentativeCorpusBuilder
 from corpus.stage2_5_experiment import Stage2_5ExperimentRunner
-
-from parallel_experiment_executor import (
-    ParallelExperimentExecutor,
-    ParallelExperimentConfig,
-)
 from corpus.threshold_calibrator import ThresholdCalibrator
 from corpus.vector_store_builder import VectorStoreBuilder
 from draft_generator import DraftGenerator
@@ -190,45 +185,14 @@ def command_calibrate(args: argparse.Namespace) -> int:
     if not development_dataset:
         raise RuntimeError(f"No benchmark examples were loaded from {paths['benchmark_path']}.")
 
-    if args.parallel:
-
-        executor = ParallelExperimentExecutor(
-            config=ParallelExperimentConfig(
-                model_name=args.model_name,
-                embedding_model_name=args.embedding_model,
-                vector_store_directory=paths["vector_store_directory"],
-                device=args.device,
-                worker_count=args.workers,
-                gpu_ids=(
-                    tuple(args.gpu_ids)
-                    if args.gpu_ids is not None
-                    else None
-                ),
-                prefix_length=args.prefix_length,
-                beta=args.beta,
-                max_new_tokens=args.max_new_tokens,
-                retrieval_top_k=args.retrieval_top_k,
-                embedding_device=args.embedding_device,
-            )
-        )
-
-        experiment = executor.run(
-            development_dataset=development_dataset,
-        )
-
-    else:
-
-        runner = Stage2_5ExperimentRunner(
-            draft_generator=draft_generator,
-            uncertainty_scorer=uncertainty_scorer,
-            answer_generator=answer_generator,
-            retriever=retriever,
-            answer_evaluator=answer_evaluator,
-        )
-
-        experiment = runner.run(
-            development_dataset=development_dataset,
-        )
+    runner = Stage2_5ExperimentRunner(
+        draft_generator=draft_generator,
+        uncertainty_scorer=uncertainty_scorer,
+        answer_generator=answer_generator,
+        retriever=retriever,
+        answer_evaluator=answer_evaluator,
+    )
+    experiment = runner.run(development_dataset=development_dataset)
 
     calibrator = ThresholdCalibrator()
     if args.strategy == CalibrationStrategy.ACCURACY.value:
@@ -388,39 +352,6 @@ def add_calibration_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--target-retrieval-rate", type=float, default=0.30)
 
 
-def add_parallel_arguments(
-    parser: argparse.ArgumentParser,
-) -> None:
-    parser.add_argument(
-        "--parallel",
-        action="store_true",
-        help="Run Stage 2.5 in parallel.",
-    )
-
-    parser.add_argument(
-        "--device",
-        choices=["auto", "cpu", "cuda"],
-        default="auto",
-        help="Execution device.",
-    )
-
-    parser.add_argument(
-        "--workers",
-        type=int,
-        default=None,
-        help="Number of worker processes.",
-    )
-
-    parser.add_argument(
-        "--gpu-ids",
-        type=int,
-        nargs="+",
-        default=None,
-        metavar="GPU_ID",
-        help="CUDA device IDs to use.",
-    )
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Training-Free Adaptive Retrieval Gating application.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -436,13 +367,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_embedding_arguments(calibrate_parser)
     add_generation_arguments(calibrate_parser)
     add_calibration_arguments(calibrate_parser)
-    add_parallel_arguments(calibrate_parser)
     calibrate_parser.set_defaults(handler=command_calibrate)
-    calibrate_parser.add_argument(
-        "--retrieval-top-k",
-        type=int,
-        default=DEFAULT_RETRIEVAL_TOP_K,
-    )
 
     ask_parser = subparsers.add_parser("ask")
     add_common_path_arguments(ask_parser)
@@ -457,7 +382,6 @@ def build_parser() -> argparse.ArgumentParser:
     add_generation_arguments(run_parser)
     add_chunking_arguments(run_parser)
     add_calibration_arguments(run_parser)
-    add_parallel_arguments(run_parser)
     run_parser.add_argument("--retrieval-top-k", type=int, default=DEFAULT_RETRIEVAL_TOP_K)
     run_parser.add_argument("--question", "-q", action="append", required=True)
     run_parser.set_defaults(handler=command_run)
