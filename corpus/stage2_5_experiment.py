@@ -28,7 +28,7 @@ from typing import Any, Iterable, Protocol, Sequence, runtime_checkable
 from answer_evaluator import AnswerEvaluator, EvaluationResult
 from answer_generator import AnswerGenerator, AnswerOutput
 from retrieval_comparison import RetrievalComparison 
-from development_record import DevelopmentRecord
+from corpus.development_record import DevelopmentRecord
 
 # ---------------------------------------------------------------------
 # Protocols

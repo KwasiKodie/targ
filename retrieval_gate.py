@@ -29,7 +29,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
-from threshold_calibrator import CalibrationResult
+from corpus.threshold_calibrator import CalibrationResult
 
 
 # ---------------------------------------------------------

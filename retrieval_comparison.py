@@ -155,7 +155,7 @@ class RetrievalComparison:
         Imported lazily to avoid circular imports
         """
 
-        from threshold_calibrator import DevelopmentExample
+        from corpus.threshold_calibrator import DevelopmentExample
 
         return DevelopmentExample(
             example_id=self.example_id,

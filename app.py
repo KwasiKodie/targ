@@ -19,7 +19,7 @@ from margin_uncertainty_scorer import MarginUncertaintyScorer
 from retrieval_gate import RetrievalGate 
 from answer_generator import AnswerGenerator 
 from transformers import AutoModelForCausalLM, AutoTokenizer
-from threshold_calibrator import ThresholdCalibrator
+from corpus.threshold_calibrator import ThresholdCalibrator
 
 def main():
 

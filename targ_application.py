@@ -34,6 +34,7 @@ from langchain_core.vectorstores import VectorStore
 from benchmark.benchmark_loader import BenchmarkLoader
 from corpus.chunker import Chunker
 from corpus.corpus_models import Chunk, CorpusDocument
+
 from corpus.development_record import DevelopmentRecord
 from corpus.representative_corpus import RepresentativeCorpusBuilder
 from corpus.stage2_5_experiment import (
@@ -50,7 +51,16 @@ from answer_evaluator import AnswerEvaluator, EvaluationResult
 from answer_generator import AnswerGenerator
 from draft_generator import DraftGenerator
 from margin_uncertainty_scorer import MarginUncertaintyScorer
-from retrieval import VectorRetriever
+
+from module_loader import load 
+
+retrieval = load(
+    "retrieval_runtime",
+    "retrieval.py"
+)
+
+VectorRetriever = retrieval.VectorRetriever
+
 from retrieval_gate import RetrievalGate
 from targ_pipeline import PipelineResult, TARGPipeline
 
