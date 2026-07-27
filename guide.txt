@@ -280,3 +280,42 @@ Yes. This is actually the next experiment in the reproduction pipeline, and it s
 =========
 Next move
 =========
+
+- Running the LLM on a GPU instead of a CPU.
+- Using a smaller or quantized model.
+Parallelising benchmark evaluation across multiple processes or GPUs.
+- Reducing the number of benchmark queries during development.
+Caching retrieved documents and repeated model outputs where appropriate.
+Optimising retrieval (e.g., batching embedding operations or tuning FAISS settings).
+
+
+========
+Commands
+========
+
+Run the full workflow
+
+ python main.py run \
+  --question "What is DNS amplification?"
+
+Run each stage separately
+
+ python main.py prepare
+ python main.py calibrate --strategy accuracy
+ python main.py ask --question "What is DNS amplification?"
+
+Budget calibration
+
+ python main.py calibrate \
+  --strategy budget \
+  --target-retrieval-rate 0.30
+
+Interactive inference
+ python main.py ask
+
+Enable parallel calibration 
+ 
+ python main.py calibrate --parallel --device auto --workers 4
+
+On a multi-GPU system
+ python main.py calibrate --parallel --device cuda --gpu-ids 0 1

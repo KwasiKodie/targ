@@ -32,7 +32,7 @@ class ParallelExperimentConfig:
     gpu_ids: tuple[int, ...] | None = None
     prefix_length: int = 20
     beta: float = 3.0
-    max_new_tokens: int = 128
+    max_new_tokens: int = 256
     retrieval_top_k: int = 5
     embedding_device: str = "cpu"
     add_special_tokens: bool = True
