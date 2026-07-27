@@ -1,5 +1,5 @@
 usage: colab_kernel_launcher.py [-h] {prepare,calibrate,ask,benchmark,run} ...
-colab_kernel_launcher.py: error: argument command: invalid choice: '/root/.local/share/jupyter/runtime/kernel-78d884df-600d-4562-b0f6-3a76a6d141e5.json' (choose from prepare, calibrate, ask, benchmark, run)
+colab_kernel_launcher.py: error: argument command: invalid choice: '/root/.local/share/jupyter/runtime/kernel-1a09fbd4-5d3d-4246-b083-98bd411086ca.json' (choose from prepare, calibrate, ask, benchmark, run)
 ERROR:root:Internal Python error in the inspect module.
 Below is the traceback from this internal error.
 
@@ -19,16 +19,16 @@ Traceback (most recent call last):
     self._check_value(action, value[0])
   File "/usr/lib/python3.12/argparse.py", line 2573, in _check_value
     raise ArgumentError(action, msg % args)
-argparse.ArgumentError: argument command: invalid choice: '/root/.local/share/jupyter/runtime/kernel-78d884df-600d-4562-b0f6-3a76a6d141e5.json' (choose from prepare, calibrate, ask, benchmark, run)
+argparse.ArgumentError: argument command: invalid choice: '/root/.local/share/jupyter/runtime/kernel-1a09fbd4-5d3d-4246-b083-98bd411086ca.json' (choose from prepare, calibrate, ask, benchmark, run)
 
 During handling of the above exception, another exception occurred:
 
 Traceback (most recent call last):
   File "/usr/local/lib/python3.12/dist-packages/IPython/core/interactiveshell.py", line 3553, in run_code
     exec(code_obj, self.user_global_ns, self.user_ns)
-  File "/tmp/ipykernel_8943/408651839.py", line 4, in <cell line: 0>
+  File "/tmp/ipykernel_4103/408651839.py", line 4, in <cell line: 0>
     main()
-  File "/content/targ/main.py", line 592, in main
+  File "/content/targ/main_benchmark.py", line 598, in main
     args = parser.parse_args(argv)
            ^^^^^^^^^^^^^^^^^^^^^^^
   File "/usr/lib/python3.12/argparse.py", line 1904, in parse_args
@@ -76,32 +76,7 @@ ArgumentError                             Traceback (most recent call last)
 
 19 frames
 
-/usr/lib/python3.12/argparse.py in _parse_known_args(self, arg_strings, namespace, intermixed)
-   2187             # consume any positionals following the last Optional
--> 2188             stop_index = consume_positionals(start_index)
-   2189 
-
-/usr/lib/python3.12/argparse.py in consume_positionals(start_index)
-   2140                 start_index += arg_count
--> 2141                 take_action(action, args)
-   2142 
-
-/usr/lib/python3.12/argparse.py in take_action(action, argument_strings, option_string)
-   2002             seen_actions.add(action)
--> 2003             argument_values = self._get_values(action, argument_strings)
-   2004 
-
-/usr/lib/python3.12/argparse.py in _get_values(self, action, arg_strings)
-   2522             value = [self._get_value(action, v) for v in arg_strings]
--> 2523             self._check_value(action, value[0])
-   2524 
-
-/usr/lib/python3.12/argparse.py in _check_value(self, action, value)
-   2572                 msg = _('invalid choice: %(value)r (choose from %(choices)s)')
--> 2573                 raise ArgumentError(action, msg % args)
-   2574 
-
-ArgumentError: argument command: invalid choice: '/root/.local/share/jupyter/runtime/kernel-78d884df-600d-4562-b0f6-3a76a6d141e5.json' (choose from prepare, calibrate, ask, benchmark, run)
+ArgumentError: argument command: invalid choice: '/root/.local/share/jupyter/runtime/kernel-1a09fbd4-5d3d-4246-b083-98bd411086ca.json' (choose from prepare, calibrate, ask, benchmark, run)
 
 
 During handling of the above exception, another exception occurred:
@@ -109,40 +84,6 @@ During handling of the above exception, another exception occurred:
 SystemExit                                Traceback (most recent call last)
 
     [... skipping hidden 1 frame]
-
-/tmp/ipykernel_8943/408651839.py in <cell line: 0>()
-      3 try:
-----> 4     main()
-      5 except Exception:
-
-/content/targ/main.py in main(argv)
-    591     parser = build_parser()
---> 592     args = parser.parse_args(argv)
-    593     try:
-
-/usr/lib/python3.12/argparse.py in parse_args(self, args, namespace)
-   1903     def parse_args(self, args=None, namespace=None):
--> 1904         args, argv = self.parse_known_args(args, namespace)
-   1905         if argv:
-
-/usr/lib/python3.12/argparse.py in parse_known_args(self, args, namespace)
-   1913     def parse_known_args(self, args=None, namespace=None):
--> 1914         return self._parse_known_args2(args, namespace, intermixed=False)
-   1915 
-
-/usr/lib/python3.12/argparse.py in _parse_known_args2(self, args, namespace, intermixed)
-   1944             except ArgumentError as err:
--> 1945                 self.error(str(err))
-   1946         else:
-
-/usr/lib/python3.12/argparse.py in error(self, message)
-   2649         args = {'prog': self.prog, 'message': message}
--> 2650         self.exit(2, _('%(prog)s: error: %(message)s\n') % args)
-
-/usr/lib/python3.12/argparse.py in exit(self, status, message)
-   2636             self._print_message(message, _sys.stderr)
--> 2637         _sys.exit(status)
-   2638 
 
 SystemExit: 2
 
@@ -152,55 +93,6 @@ During handling of the above exception, another exception occurred:
 TypeError                                 Traceback (most recent call last)
 
     [... skipping hidden 1 frame]
-
-/usr/local/lib/python3.12/dist-packages/IPython/core/interactiveshell.py in showtraceback(self, exc_tuple, filename, tb_offset, exception_only, running_compiled_code)
-   2090                     stb = ['An exception has occurred, use %tb to see '
-   2091                            'the full traceback.\n']
--> 2092                     stb.extend(self.InteractiveTB.get_exception_only(etype,
-   2093                                                                      value))
-   2094                 else:
-
-/usr/local/lib/python3.12/dist-packages/IPython/core/ultratb.py in get_exception_only(self, etype, value)
-    752         value : exception value
-    753         """
---> 754         return ListTB.structured_traceback(self, etype, value)
-    755 
-    756     def show_exception_only(self, etype, evalue):
-
-/usr/local/lib/python3.12/dist-packages/IPython/core/ultratb.py in structured_traceback(self, etype, evalue, etb, tb_offset, context)
-    627             chained_exceptions_tb_offset = 0
-    628             out_list = (
---> 629                 self.structured_traceback(
-    630                     etype, evalue, (etb, chained_exc_ids),
-    631                     chained_exceptions_tb_offset, context)
-
-/usr/local/lib/python3.12/dist-packages/IPython/core/ultratb.py in structured_traceback(self, etype, value, tb, tb_offset, number_of_lines_of_context)
-   1365         else:
-   1366             self.tb = tb
--> 1367         return FormattedTB.structured_traceback(
-   1368             self, etype, value, tb, tb_offset, number_of_lines_of_context)
-   1369 
-
-/usr/local/lib/python3.12/dist-packages/IPython/core/ultratb.py in structured_traceback(self, etype, value, tb, tb_offset, number_of_lines_of_context)
-   1265         if mode in self.verbose_modes:
-   1266             # Verbose modes need a full traceback
--> 1267             return VerboseTB.structured_traceback(
-   1268                 self, etype, value, tb, tb_offset, number_of_lines_of_context
-   1269             )
-
-/usr/local/lib/python3.12/dist-packages/IPython/core/ultratb.py in structured_traceback(self, etype, evalue, etb, tb_offset, number_of_lines_of_context)
-   1122         """Return a nice text document describing the traceback."""
-   1123 
--> 1124         formatted_exception = self.format_exception_as_a_whole(etype, evalue, etb, number_of_lines_of_context,
-   1125                                                                tb_offset)
-   1126 
-
-/usr/local/lib/python3.12/dist-packages/IPython/core/ultratb.py in format_exception_as_a_whole(self, etype, evalue, etb, number_of_lines_of_context, tb_offset)
-   1080 
-   1081 
--> 1082         last_unique, recursion_repeat = find_recursion(orig_etype, evalue, records)
-   1083 
-   1084         frames = self.format_records(records, last_unique, recursion_repeat)
 
 /usr/local/lib/python3.12/dist-packages/IPython/core/ultratb.py in find_recursion(etype, value, records)
     380     # first frame (from in to out) that looks different.

@@ -8,7 +8,6 @@ Commands:
     calibrate  Run Stage 2.5 and save a calibrated threshold.
     ask        Load persisted artifacts and answer questions.
     run        Execute preparation, calibration, and inference end to end.
-    benchmark  Collect raw benchmark inference data for notebook analysis.
 """
 
 from __future__ import annotations
@@ -35,12 +34,6 @@ from corpus.stage2_5_experiment import Stage2_5ExperimentRunner
 from parallel_experiment_executor import (
     ParallelExperimentExecutor,
     ParallelExperimentConfig,
-)
-from parallel_benchmark_executor import (
-    BenchmarkDatasetWriter,
-    BenchmarkRecord,
-    ParallelBenchmarkConfig,
-    ParallelBenchmarkExecutor,
 )
 from corpus.threshold_calibrator import ThresholdCalibrator
 from corpus.vector_store_builder import VectorStoreBuilder
@@ -314,93 +307,6 @@ def command_ask(args: argparse.Namespace) -> int:
     return 0
 
 
-def _benchmark_record(query) -> BenchmarkRecord:
-    """Convert a loaded benchmark query into a picklable runtime record."""
-    expected_sources = getattr(
-        query,
-        "expected_sources",
-        getattr(query, "expected_source", ()),
-    )
-    return BenchmarkRecord(
-        benchmark_id=str(query.benchmark_id),
-        question=str(query.question),
-        expected_answer=str(query.expected_answer_span),
-        expected_sources=tuple(str(item) for item in expected_sources),
-        section_title=(
-            str(query.section_title)
-            if getattr(query, "section_title", None) is not None
-            else None
-        ),
-        supporting_pages=tuple(
-            int(item) for item in getattr(query, "supporting_pages", ())
-        ),
-        difficulty=(
-            str(query.difficulty)
-            if getattr(query, "difficulty", None) is not None
-            else None
-        ),
-        topic=(
-            str(query.topic)
-            if getattr(query, "topic", None) is not None
-            else None
-        ),
-    )
-
-
-def command_benchmark(args: argparse.Namespace) -> int:
-    """Run every benchmark query and persist raw observations only."""
-    paths = resolve_paths(args)
-    if not paths["calibration_path"].exists():
-        raise FileNotFoundError(
-            f"Calibration artifact does not exist: {paths['calibration_path']}. "
-            "Run `python main.py calibrate` for this model first."
-        )
-
-    benchmark = BenchmarkLoader(benchmark_path=paths["benchmark_path"]).load()
-    records = tuple(_benchmark_record(query) for query in benchmark)
-    if not records:
-        raise RuntimeError(
-            f"No benchmark examples were loaded from {paths['benchmark_path']}."
-        )
-
-    executor = ParallelBenchmarkExecutor(
-        config=ParallelBenchmarkConfig(
-            model_name=args.model_name,
-            embedding_model_name=args.embedding_model,
-            vector_store_directory=paths["vector_store_directory"],
-            calibration_path=paths["calibration_path"],
-            device=args.device,
-            worker_count=args.workers,
-            gpu_ids=tuple(args.gpu_ids) if args.gpu_ids is not None else None,
-            prefix_length=args.prefix_length,
-            beta=args.beta,
-            max_new_tokens=args.max_new_tokens,
-            retrieval_top_k=args.retrieval_top_k,
-            embedding_device=args.embedding_device,
-        )
-    )
-    results = executor.run(records=records)
-
-    jsonl_path = BenchmarkDatasetWriter.write_jsonl(
-        results,
-        args.output_jsonl,
-        append=args.append,
-    )
-    csv_path = BenchmarkDatasetWriter.write_csv(
-        results,
-        args.output_csv,
-        append=args.append,
-    )
-
-    print("\nBenchmark data collection completed.")
-    print(f"Model          : {args.model_name}")
-    print(f"Queries        : {len(results)}")
-    print(f"JSONL dataset  : {jsonl_path}")
-    print(f"CSV dataset    : {csv_path}")
-    print("Analysis       : deferred to Jupyter Notebook")
-    return 0
-
-
 def command_run(args: argparse.Namespace) -> int:
     paths = resolve_paths(args)
     embeddings = build_embeddings(args.embedding_model, device=args.embedding_device)
@@ -545,33 +451,6 @@ def build_parser() -> argparse.ArgumentParser:
     ask_parser.add_argument("--question", "-q")
     ask_parser.set_defaults(handler=command_ask)
 
-    benchmark_parser = subparsers.add_parser("benchmark")
-    add_common_path_arguments(benchmark_parser)
-    add_embedding_arguments(benchmark_parser)
-    add_generation_arguments(benchmark_parser)
-    add_parallel_arguments(benchmark_parser)
-    benchmark_parser.add_argument(
-        "--retrieval-top-k",
-        type=int,
-        default=DEFAULT_RETRIEVAL_TOP_K,
-    )
-    benchmark_parser.add_argument(
-        "--output-jsonl",
-        default="benchmark_results.jsonl",
-        help="Raw JSON Lines output. Use --append across model runs.",
-    )
-    benchmark_parser.add_argument(
-        "--output-csv",
-        default="benchmark_results.csv",
-        help="Flat CSV output for Jupyter/pandas.",
-    )
-    benchmark_parser.add_argument(
-        "--append",
-        action="store_true",
-        help="Append this model run to existing datasets.",
-    )
-    benchmark_parser.set_defaults(handler=command_benchmark)
-
     run_parser = subparsers.add_parser("run")
     add_common_path_arguments(run_parser)
     add_embedding_arguments(run_parser)
@@ -588,15 +467,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     load_dotenv()
-
-    if argv is None:
-        argv = sys.argv[1:]
-        if argv and argv[0].endswith(".json"):
-            argv = []
-
     parser = build_parser()
     args = parser.parse_args(argv)
-    
     try:
         return int(args.handler(args))
     except KeyboardInterrupt:
