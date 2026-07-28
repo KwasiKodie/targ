@@ -136,13 +136,23 @@ def _document_payload(document: Any) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {"value": payload}
 
 
+class _TopKRetriever:
+    """Bind retrieval_top_k without changing TARGPipeline."""
+
+    def __init__(self, retriever: Any, top_k: int) -> None:
+        self._retriever = retriever
+        self._top_k = top_k
+
+    def retrieve(self, query: str):
+        return self._retriever.retrieve(query=query, top_k=self._top_k)
+
+
 def _build_pipeline(task: _WorkerTask):
     """Construct all non-picklable runtime components inside a worker."""
     from langchain_community.vectorstores import FAISS
     from langchain_huggingface import HuggingFaceEmbeddings
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
-    from answer_evaluator import AnswerEvaluator
     from answer_generator import AnswerGenerator
     from corpus.threshold_calibrator import ThresholdCalibrator
     from draft_generator import DraftGenerator
@@ -181,9 +191,14 @@ def _build_pipeline(task: _WorkerTask):
         allow_dangerous_deserialization=True,
     )
     retrieval_module = load("retrieval_runtime", "retrieval.py")
-    retriever = retrieval_module.VectorRetriever(vector_store=vector_store)
+    retriever = _TopKRetriever(
+        retrieval_module.VectorRetriever(vector_store=vector_store),
+        cfg.retrieval_top_k,
+    )
     calibration = ThresholdCalibrator.load(cfg.calibration_path)
 
+    # TARGPipeline accepts exactly five runtime components. Evaluation is
+    # intentionally deferred to Jupyter and is not passed into the pipeline.
     pipeline = TARGPipeline(
         draft_generator=DraftGenerator(model=model, tokenizer=tokenizer, prefix_length=cfg.prefix_length),
         scorer=MarginUncertaintyScorer(beta=cfg.beta),
@@ -195,8 +210,6 @@ def _build_pipeline(task: _WorkerTask):
             max_new_tokens=cfg.max_new_tokens,
             add_special_tokens=cfg.add_special_tokens,
         ),
-        answer_evaluator=AnswerEvaluator(),
-        retrieval_top_k=cfg.retrieval_top_k,
     )
     return pipeline, calibration
 
@@ -209,9 +222,9 @@ def _run_partition(task: _WorkerTask) -> tuple[BenchmarkInferenceResult, ...]:
     pipeline, calibration = _build_pipeline(task)
     output: list[BenchmarkInferenceResult] = []
     for record in task.records:
-        result = pipeline.run(record.question, reference_answer=record.expected_answer)
+        result = pipeline.run(record.question)
         documents = tuple(_document_payload(item) for item in result.retrieval.documents)
-        evaluation = _plain(result.evaluation)
+        evaluation = None
         output.append(
             BenchmarkInferenceResult(
                 run_id=task.run_id,
@@ -226,7 +239,9 @@ def _run_partition(task: _WorkerTask) -> tuple[BenchmarkInferenceResult, ...]:
                 supporting_pages=record.supporting_pages,
                 difficulty=record.difficulty,
                 topic=record.topic,
-                generated_answer=result.answer.generated_text,
+                generated_answer=str(
+                    getattr(result.answer, "generated_text", result.answer)
+                ),
                 draft_text=str(getattr(result.draft, "generated_text", getattr(result.draft, "text", ""))),
                 uncertainty_score=float(result.margin.score),
                 threshold=float(calibration.threshold),

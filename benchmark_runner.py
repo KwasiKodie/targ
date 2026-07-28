@@ -125,7 +125,16 @@ class BenchmarkRunner:
 
     @staticmethod
     def _to_record(query) -> BenchmarkRecord:
-        expected_sources = getattr(query, "expected_source", ())
+        expected_sources = getattr(
+            query,
+            "expected_sources",
+            getattr(query, "expected_source", ()),
+        )
+        if expected_sources is None:
+            expected_sources = ()
+        elif isinstance(expected_sources, str):
+            expected_sources = (expected_sources,)
+
         return BenchmarkRecord(
             benchmark_id=str(query.benchmark_id),
             question=str(query.question),
