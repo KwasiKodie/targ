@@ -55,7 +55,7 @@ retrieval_module = load("retrieval_runtime", "retrieval.py")
 VectorRetriever = retrieval_module.VectorRetriever
 
 PROJECT_ROOT = Path(__file__).resolve().parent
-DEFAULT_MODEL_NAME = "meta-llama/Llama-3.1-8B-Instruc"
+DEFAULT_MODEL_NAME = "meta-llama/Llama-3.1-8B-Instruct"
 DEFAULT_EMBEDDING_MODEL = "intfloat/e5-base-v2"
 DEFAULT_CHUNK_SIZE = 1000
 DEFAULT_CHUNK_OVERLAP = 100
